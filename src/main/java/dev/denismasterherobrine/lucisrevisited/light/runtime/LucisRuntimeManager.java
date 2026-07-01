@@ -24,10 +24,12 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 
 public final class LucisRuntimeManager implements AutoCloseable {
+    private static final int MAX_RUNTIME_REGION_SUBMITS_PER_TICK = Integer.getInteger("lucis.runtime.maxSubmitsPerTick", 0);
+
     private final RuntimeUpdateQueue updateQueue = new RuntimeUpdateQueue();
     private final RegionOwnerTable ownerTable = new RegionOwnerTable();
     private final OwnedRegionCache regionCache = new OwnedRegionCache();
-    private final LucisScheduler scheduler = new LucisScheduler(Math.max(1, Runtime.getRuntime().availableProcessors() - 1));
+    private final LucisScheduler scheduler = new LucisScheduler(runtimeWorkerCount());
     private final ConcurrentLinkedQueue<LucisRelightResult> commitQueue = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<BoundaryDelta> boundaryQueue = new ConcurrentLinkedQueue<>();
     private final Set<Long> scheduledRegions = ConcurrentHashMap.newKeySet();
@@ -70,8 +72,9 @@ public final class LucisRuntimeManager implements AutoCloseable {
         LucisBenchmarkSupport.count("lucis.runtime.drain.regions", byRegion.size());
 
         int scheduled = 0;
+        int maxSubmits = runtimeSubmitBudget();
         for (Map.Entry<Long, List<BlockChangeRecord>> entry : byRegion.entrySet()) {
-            if (scheduled >= LucisConfig.maxBatchChunks) {
+            if (scheduled >= maxSubmits) {
                 LucisBenchmarkSupport.count("lucis.runtime.requeued.batchLimit");
                 updateQueue.enqueueAll(entry.getValue());
                 continue;
@@ -85,8 +88,9 @@ public final class LucisRuntimeManager implements AutoCloseable {
                                          int regionChunks, int haloChunks, boolean enableSky, boolean enableBlock) {
         BoundaryDelta delta;
         int scheduled = 0;
+        int maxSubmits = runtimeSubmitBudget();
         while ((delta = boundaryQueue.poll()) != null) {
-            if (scheduled >= LucisConfig.maxBatchChunks) {
+            if (scheduled >= maxSubmits) {
                 LucisBenchmarkSupport.count("lucis.runtime.boundary.requeued.batchLimit");
                 boundaryQueue.add(delta);
                 break;
@@ -168,16 +172,14 @@ public final class LucisRuntimeManager implements AutoCloseable {
     }
 
     private void flushCommits(ThreadedLevelLightEngine lightEngine) {
+        LucisLightPublisher publisher = (LucisLightPublisher) lightEngine;
         boolean any = false;
         LucisRelightResult result;
         while ((result = commitQueue.poll()) != null) {
             any = true;
             LucisBenchmarkSupport.count("lucis.runtime.commit.results");
-            for (LucisSectionData section : result.sections()) {
-                LucisBenchmarkSupport.count("lucis.runtime.commit.sections");
-                lightEngine.queueSectionData(section.layer(), section.sectionPos(), section.dataLayer());
-                lightEngine.updateSectionStatus(section.sectionPos(), false);
-            }
+            LucisBenchmarkSupport.count("lucis.runtime.commit.sections", result.sections().size());
+            publisher.lucisrevisited$publish(result);
         }
         if (any) {
             lightEngine.tryScheduleUpdate();
@@ -188,6 +190,23 @@ public final class LucisRuntimeManager implements AutoCloseable {
         int originChunkX = Math.floorDiv(chunkX, regionChunks) * regionChunks;
         int originChunkZ = Math.floorDiv(chunkZ, regionChunks) * regionChunks;
         return RegionBounds.regionKey(originChunkX, originChunkZ);
+    }
+
+    private static int runtimeWorkerCount() {
+        int configured = Integer.getInteger("lucis.runtimeWorkers", 0);
+        if (configured > 0) {
+            return configured;
+        }
+        int available = Runtime.getRuntime().availableProcessors();
+        return Math.max(1, Math.min(available / 2, 4));
+    }
+
+    private static int runtimeSubmitBudget() {
+        int configured = MAX_RUNTIME_REGION_SUBMITS_PER_TICK;
+        if (configured > 0) {
+            return Math.max(1, Math.min(LucisConfig.maxBatchChunks, configured));
+        }
+        return Math.max(1, LucisConfig.maxBatchChunks);
     }
 
     @Override

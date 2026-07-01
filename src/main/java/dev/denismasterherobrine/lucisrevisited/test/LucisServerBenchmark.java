@@ -73,7 +73,6 @@ public final class LucisServerBenchmark {
             activeRun.releaseTickets();
             activeRun = null;
         }
-        LucisServices.controller().shutdown();
     }
 
     private static int applyPattern(ServerLevel level, BenchmarkConfig config, BlockState state) {
@@ -319,6 +318,9 @@ public final class LucisServerBenchmark {
         private final ChunkPos[] trackedChunks;
         private final boolean[] preparedChunkLoaded;
         private final CompletableFuture<?>[] waitFutures;
+        private final long prepareStartNanos;
+        private long prepareChunksLoadedNanos;
+        private int prepareChanges;
         private int remainingPrepareChunks;
         private int prepareTicketIndex;
         private int preparePollIndex;
@@ -360,6 +362,8 @@ public final class LucisServerBenchmark {
             this.preparedChunkLoaded = new boolean[chunkCount];
             this.waitFutures = new CompletableFuture<?>[chunkCount];
             this.remainingPrepareChunks = chunkCount;
+            this.prepareStartNanos = System.nanoTime();
+            LucisBenchmarkSupport.reset();
             int index = 0;
             for (int chunkZ = this.minChunkZ; chunkZ <= this.maxChunkZ; chunkZ++) {
                 for (int chunkX = this.minChunkX; chunkX <= this.maxChunkX; chunkX++) {
@@ -429,10 +433,16 @@ public final class LucisServerBenchmark {
                     return;
                 }
                 this.prepareChunksLoaded = true;
-                LOGGER.info("Lucis light benchmark prepare chunks loaded: mode={} trackedChunks={}", this.config.mode(), this.trackedChunks.length);
+                long prepareEndNanos = System.nanoTime();
+                this.prepareChunksLoadedNanos = prepareEndNanos;
+                LOGGER.info("Lucis light benchmark prepare chunks loaded: mode={} trackedChunks={} elapsedMs={}",
+                        this.config.mode(), this.trackedChunks.length, (prepareEndNanos - this.prepareStartNanos) / 1_000_000L);
+                LucisBenchmarkSupport.logResult("server_chunk_load_" + this.config.workload(), this.trackedChunks.length,
+                        this.prepareStartNanos, prepareEndNanos);
+                LucisBenchmarkSupport.reset();
                 this.waitTicks = 0;
             }
-            applyPreparationPattern(this.level, this.config);
+            this.prepareChanges = applyPreparationPattern(this.level, this.config);
             this.beginLightWait();
             this.phase = Phase.WAIT_PREPARE_LIGHT;
         }
@@ -446,7 +456,15 @@ public final class LucisServerBenchmark {
                 this.finish();
                 return;
             }
-            LOGGER.info("Lucis light benchmark prepare complete: mode={} waitTicks={}", this.config.mode(), this.waitTicks);
+            long completedNanos = this.waitCompleteNanos == 0L ? System.nanoTime() : this.waitCompleteNanos;
+            LOGGER.info("Lucis light benchmark prepare complete: mode={} waitTicks={} changes={} loadMs={} lightWaitMs={} totalMs={}",
+                    this.config.mode(), this.waitTicks, this.prepareChanges,
+                    (this.prepareChunksLoadedNanos - this.prepareStartNanos) / 1_000_000L,
+                    Math.max(0L, completedNanos - this.waitStartNanos) / 1_000_000L,
+                    (completedNanos - this.prepareStartNanos) / 1_000_000L);
+            LucisBenchmarkSupport.record("bench.prepare_light_wait", Math.max(0L, completedNanos - this.waitStartNanos));
+            LucisBenchmarkSupport.logResult("server_chunk_prepare_" + this.config.workload(), this.trackedChunks.length,
+                    this.prepareStartNanos, completedNanos);
             this.waitTicks = 0;
             this.phase = Phase.SETTLE;
         }

@@ -66,6 +66,9 @@ public final class LucisBlockLightEngine {
         removeLevels.clear();
 
         for (RuntimeLightChange change : changes) {
+            if (!data.isInside(change.worldX(), change.worldY(), change.worldZ())) {
+                continue;
+            }
             int index = data.index(change.worldX(), change.worldY(), change.worldZ());
             int oldLight = data.blockLight[index] & 0xF;
             int oldOpacity = change.oldOpacity() & 0xF;
@@ -93,6 +96,9 @@ public final class LucisBlockLightEngine {
 
     public void applyRuntimeChangesFast(RegionLightData data, List<RuntimeLightChange> changes) {
         for (RuntimeLightChange change : changes) {
+            if (!data.isInside(change.worldX(), change.worldY(), change.worldZ())) {
+                continue;
+            }
             int index = data.index(change.worldX(), change.worldY(), change.worldZ());
             int emission = change.newEmission() & 0xF;
             data.blockLight[index] = (byte) emission;

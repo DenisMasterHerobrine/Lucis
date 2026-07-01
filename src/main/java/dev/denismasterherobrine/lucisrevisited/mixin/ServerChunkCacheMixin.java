@@ -2,7 +2,6 @@ package dev.denismasterherobrine.lucisrevisited.mixin;
 
 import dev.denismasterherobrine.lucisrevisited.light.engine.LucisServices;
 import dev.denismasterherobrine.lucisrevisited.test.LucisBenchmarkSupport;
-import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ThreadedLevelLightEngine;
 import net.minecraft.world.level.chunk.LightChunkGetter;
@@ -18,14 +17,6 @@ public abstract class ServerChunkCacheMixin {
     @Shadow
     @Final
     net.minecraft.server.level.ThreadedLevelLightEngine lightEngine;
-
-    @Inject(method = "blockChanged", at = @At("HEAD"), cancellable = true)
-    private void lucis$blockChanged(BlockPos pos, CallbackInfo ci) {
-        if (!LucisServices.controller().shouldHandleBlockChange(pos)) {
-            return;
-        }
-        ci.cancel();
-    }
 
     @Inject(method = "tick", at = @At("TAIL"))
     private void lucis$tick(java.util.function.BooleanSupplier hasTimeLeft, boolean tickChunks, CallbackInfo ci) {

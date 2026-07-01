@@ -5,6 +5,7 @@ import dev.denismasterherobrine.lucisrevisited.config.LucisConfig;
 import net.neoforged.fml.ModList;
 
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
@@ -27,6 +28,14 @@ public final class LucisBenchmarkSupport {
 
     public static long epoch() {
         return RESET_EPOCH.get();
+    }
+
+    public static Snapshot snapshot() {
+        Map<String, Metric> metrics = new TreeMap<>();
+        TIME_NANOS.forEach((key, nanos) -> metrics.put(key, new Metric(nanos.sum(), COUNTS.getOrDefault(key, new LongAdder()).sum())));
+        Map<String, Long> counters = new TreeMap<>();
+        COUNTERS.forEach((key, counter) -> counters.put(key, counter.sum()));
+        return new Snapshot(metrics, counters);
     }
 
     public static void record(String key, long nanos) {
@@ -111,5 +120,14 @@ public final class LucisBenchmarkSupport {
 
     private static String format(double value) {
         return String.format(java.util.Locale.ROOT, "%.3f", value);
+    }
+
+    public record Metric(long nanos, long calls) {
+        public double millis() {
+            return nanos / 1_000_000.0;
+        }
+    }
+
+    public record Snapshot(Map<String, Metric> metrics, Map<String, Long> counters) {
     }
 }

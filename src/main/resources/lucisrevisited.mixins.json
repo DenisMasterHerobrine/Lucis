@@ -4,9 +4,12 @@
   "package": "dev.denismasterherobrine.lucisrevisited.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "ChunkMapAccessor",
+    "LevelChunkMixin",
     "ServerLevelMixin",
     "ServerChunkCacheMixin",
-    "ThreadedLevelLightEngineMixin"
+    "ThreadedLevelLightEngineMixin",
+    "WorldGenRegionMixin"
   ],
   "client": [
   ],

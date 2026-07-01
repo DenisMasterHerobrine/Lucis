@@ -9,6 +9,7 @@ def scalableLuxVersion = '0.1.0.1+neoforge.1cb1e91'
 def scalableLuxJarName = "ScalableLux-${scalableLuxVersion}-all.jar"
 def scalableLuxDownloadUrl = 'https://cdn.modrinth.com/data/Ps1zyz6x/versions/j10HNoNf/ScalableLux-0.1.0.1%2Bneoforge.1cb1e91-all.jar'
 def scalableLuxJar = layout.buildDirectory.file("downloads/${scalableLuxJarName}")
+def benchmarkLevelSeedValue = providers.gradleProperty('benchmarkLevelSeed').getOrElse('lucis-benchmark-seed')
 
 version = mod_version
 group = mod_group_id
@@ -40,6 +41,18 @@ neoForge {
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
         }
 
+        clientMeasure {
+            client()
+            gameDirectory = project.file('run')
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            systemProperty 'lucis.clientMeasure', 'true'
+            systemProperty 'lucis.enabled', providers.gradleProperty('clientMeasureLucisEnabled').getOrElse('true')
+            systemProperty 'forge.logging.console.level', 'info'
+            programArgument '--quickPlaySingleplayer'
+            programArgument providers.gradleProperty('clientMeasureWorld').getOrElse('New World (5)')
+            jvmArgument '-Xmx3G'
+        }
+
         server {
             server()
             programArgument '--nogui'
@@ -57,6 +70,9 @@ neoForge {
             runConfig.systemProperty 'lucis.benchmark.output', layout.buildDirectory.file('reports/lucis-light-benchmark.jsonl').get().asFile.absolutePath.replace('\\', '/')
             runConfig.systemProperty 'lucis.benchmark.radiusChunks', providers.gradleProperty('benchmarkRadiusChunks').getOrElse('3')
             runConfig.systemProperty 'lucis.benchmark.chunkSpan', providers.gradleProperty('benchmarkChunkSpan').getOrElse('0')
+            runConfig.systemProperty 'lucis.benchmark.originX', providers.gradleProperty('benchmarkOriginX').getOrElse('0')
+            runConfig.systemProperty 'lucis.benchmark.originZ', providers.gradleProperty('benchmarkOriginZ').getOrElse('0')
+            runConfig.systemProperty 'lucis.benchmark.y', providers.gradleProperty('benchmarkY').getOrElse('80')
             runConfig.systemProperty 'lucis.benchmark.passes', providers.gradleProperty('benchmarkPasses').getOrElse('6')
             runConfig.systemProperty 'lucis.benchmark.warmupPasses', providers.gradleProperty('benchmarkWarmupPasses').getOrElse('2')
             runConfig.systemProperty 'lucis.benchmark.settleTicks', providers.gradleProperty('benchmarkSettleTicks').getOrElse('20')
@@ -66,6 +82,8 @@ neoForge {
             runConfig.systemProperty 'lucis.haloChunks', '0'
             runConfig.systemProperty 'lucis.maxBatchChunks', providers.gradleProperty('lucisMaxBatchChunks').getOrElse('64')
             runConfig.systemProperty 'lucis.maxCachedRegions', providers.gradleProperty('lucisMaxCachedRegions').getOrElse('128')
+            runConfig.systemProperty 'lucis.worldgenWorkers', providers.gradleProperty('lucisWorldgenWorkers').getOrElse('0')
+            runConfig.systemProperty 'lucis.runtimeWorkers', providers.gradleProperty('lucisRuntimeWorkers').getOrElse('0')
             runConfig.systemProperty 'forge.logging.console.level', 'info'
             runConfig.jvmArgument '-Xmx2G'
         }
@@ -202,6 +220,31 @@ tasks.register('prepareBenchmarkScalableLuxMods', Sync) {
     into(file('run-benchmark-scalablelux/mods'))
 }
 
+def registerBenchmarkServerPropertiesTask = { String taskName, String runDirectory, String mode, int serverPort ->
+    def serverPropertiesFile = file("${runDirectory}/server.properties")
+    tasks.register(taskName) {
+        outputs.file(serverPropertiesFile)
+        inputs.property('mode', mode)
+        inputs.property('serverPort', serverPort)
+        inputs.property('benchmarkLevelSeed', benchmarkLevelSeedValue)
+
+        doLast {
+            serverPropertiesFile.parentFile.mkdirs()
+            serverPropertiesFile.text = """
+online-mode=false
+server-port=${serverPort}
+max-tick-time=-1
+motd=Lucis Revisited Benchmark ${mode}
+level-seed=${benchmarkLevelSeedValue}
+""".stripIndent().trim() + System.lineSeparator()
+        }
+    }
+}
+
+registerBenchmarkServerPropertiesTask('prepareBenchmarkVanillaServerProperties', 'run-benchmark-vanilla', 'vanilla', 25665)
+registerBenchmarkServerPropertiesTask('prepareBenchmarkScalableLuxServerProperties', 'run-benchmark-scalablelux', 'scalablelux', 25666)
+registerBenchmarkServerPropertiesTask('prepareBenchmarkLucisServerProperties', 'run-benchmark-lucis', 'lucis', 25667)
+
 tasks.named('runGameTestServer').configure {
     dependsOn tasks.named('prepareGameTestStructures')
 }
@@ -211,7 +254,15 @@ tasks.named('runBenchmarkGameTestServer').configure {
 }
 
 tasks.named('runBenchmarkScalableLuxServer').configure {
-    dependsOn tasks.named('prepareBenchmarkScalableLuxMods')
+    dependsOn tasks.named('prepareBenchmarkScalableLuxMods'), tasks.named('prepareBenchmarkScalableLuxServerProperties')
+}
+
+tasks.named('runBenchmarkVanillaServer').configure {
+    dependsOn tasks.named('prepareBenchmarkVanillaServerProperties')
+}
+
+tasks.named('runBenchmarkServer').configure {
+    dependsOn tasks.named('prepareBenchmarkLucisServerProperties')
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.

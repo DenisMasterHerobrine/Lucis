@@ -29,6 +29,13 @@ public final class LucisRegionExtractor {
         BlockGetter level = getter.getLevel();
         BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos();
         RegionBounds bounds = data.bounds;
+        int minChunkX = bounds.minBlockX() >> 4;
+        int maxChunkX = (bounds.maxBlockXExclusive() - 1) >> 4;
+        int minChunkZ = bounds.minBlockZ() >> 4;
+        int maxChunkZ = (bounds.maxBlockZExclusive() - 1) >> 4;
+        int chunkWidth = maxChunkX - minChunkX + 1;
+        LightChunk[] chunks = new LightChunk[chunkWidth * (maxChunkZ - minChunkZ + 1)];
+        boolean[] chunkResolved = new boolean[chunks.length];
 
         for (int worldY = bounds.minBuildY(); worldY < bounds.maxBuildY(); worldY++) {
             int sectionY = worldY >> 4;
@@ -36,10 +43,17 @@ public final class LucisRegionExtractor {
                 int chunkZ = worldZ >> 4;
                 for (int worldX = bounds.minBlockX(); worldX < bounds.maxBlockXExclusive(); worldX++) {
                     int chunkX = worldX >> 4;
-                    LightChunk chunk = getter.getChunkForLighting(chunkX, chunkZ);
+                    int chunkIndex = (chunkX - minChunkX) + (chunkZ - minChunkZ) * chunkWidth;
+                    LightChunk chunk = chunks[chunkIndex];
+                    if (!chunkResolved[chunkIndex]) {
+                        chunk = getter.getChunkForLighting(chunkX, chunkZ);
+                        chunks[chunkIndex] = chunk;
+                        chunkResolved[chunkIndex] = true;
+                    }
                     BlockState state;
                     if (chunk == null) {
                         state = Blocks.BEDROCK.defaultBlockState();
+                        mutable.set(worldX, worldY, worldZ);
                     } else {
                         mutable.set(worldX, worldY, worldZ);
                         state = chunk.getBlockState(mutable);
