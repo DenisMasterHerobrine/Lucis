@@ -23,21 +23,33 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public final class LucisRuntimeManager implements AutoCloseable {
     private static final int MAX_RUNTIME_REGION_SUBMITS_PER_TICK = Integer.getInteger("lucis.runtime.maxSubmitsPerTick", 0);
+    private static final int MAX_RUNTIME_PENDING_RECORDS = Integer.getInteger("lucis.runtime.maxPendingRecords", 131_072);
 
-    private final RuntimeUpdateQueue updateQueue = new RuntimeUpdateQueue();
+    private final RuntimeUpdateQueue updateQueue = new RuntimeUpdateQueue(MAX_RUNTIME_PENDING_RECORDS);
     private final RegionOwnerTable ownerTable = new RegionOwnerTable();
     private final OwnedRegionCache regionCache = new OwnedRegionCache();
     private final LucisScheduler scheduler = new LucisScheduler(runtimeWorkerCount());
     private final ConcurrentLinkedQueue<LucisRelightResult> commitQueue = new ConcurrentLinkedQueue<>();
     private final Set<Long> scheduledRegions = ConcurrentHashMap.newKeySet();
     private final AtomicLong ownerIds = new AtomicLong();
+    private volatile boolean closed;
 
-    public void enqueue(BlockChangeRecord record) {
-        updateQueue.enqueue(record);
+    public boolean enqueue(BlockChangeRecord record) {
+        if (closed) {
+            return false;
+        }
+        return updateQueue.enqueue(record);
+    }
+
+    public boolean canAcceptMoreWork() {
+        return !closed && updateQueue.hasCapacity();
     }
 
     public void tick(ThreadedLevelLightEngine lightEngine, LightChunkGetter getter, LucisRelighter relighter,
                      int regionChunks, int haloChunks, boolean enableSky, boolean enableBlock) {
+        if (closed) {
+            return;
+        }
         scheduleQueuedRegions(getter, relighter, regionChunks, haloChunks, enableSky, enableBlock);
         flushCommits(lightEngine);
         regionCache.trimToSize(LucisConfig.maxCachedRegions);
@@ -80,6 +92,12 @@ public final class LucisRuntimeManager implements AutoCloseable {
 
     private void scheduleRegion(long regionKey, List<BlockChangeRecord> changes, LightChunkGetter getter,
                                 LucisRelighter relighter, int regionChunks, int haloChunks, boolean enableSky, boolean enableBlock) {
+        if (closed) {
+            if (changes != null && !changes.isEmpty()) {
+                updateQueue.enqueueAll(changes);
+            }
+            return;
+        }
         if (!scheduledRegions.add(regionKey)) {
             LucisBenchmarkSupport.count("lucis.runtime.requeued.alreadyScheduled");
             if (changes != null && !changes.isEmpty()) {
@@ -109,6 +127,9 @@ public final class LucisRuntimeManager implements AutoCloseable {
             try {
                 List<LucisRelightResult> results = relighter.relightRuntimeRegion(getter, ownedState,
                         changes == null ? List.of() : changes, enableSky, enableBlock);
+                if (closed) {
+                    return;
+                }
                 LucisBenchmarkSupport.count("lucis.runtime.jobs.results", results.size());
                 for (LucisRelightResult result : results) {
                     LucisBenchmarkSupport.count("lucis.runtime.jobs.sections", result.sections().size());
@@ -170,9 +191,12 @@ public final class LucisRuntimeManager implements AutoCloseable {
 
     @Override
     public void close() {
+        closed = true;
         scheduler.close();
+        updateQueue.clear();
         commitQueue.clear();
         scheduledRegions.clear();
         ownerTable.clear();
+        regionCache.clear();
     }
 }

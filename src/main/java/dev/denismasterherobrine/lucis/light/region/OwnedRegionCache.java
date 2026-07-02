@@ -44,6 +44,10 @@ public final class OwnedRegionCache {
         return cache.size();
     }
 
+    public void clear() {
+        cache.clear();
+    }
+
     private boolean sameShape(RegionBounds left, RegionBounds right) {
         return left.widthBlocks() == right.widthBlocks()
                 && left.depthBlocks() == right.depthBlocks()

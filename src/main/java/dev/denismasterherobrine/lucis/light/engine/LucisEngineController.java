@@ -23,6 +23,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 public final class LucisEngineController {
     private static final int RUNTIME_REGION_CHUNKS = 1;
@@ -33,6 +34,7 @@ public final class LucisEngineController {
     private final LucisRuntimeManager runtimeManager = new LucisRuntimeManager();
     private final ExecutorService worldgenWorkers = Executors.newFixedThreadPool(worldgenWorkerCount(), new LucisWorldgenThreadFactory());
     private final ThreadLocal<Integer> worldgenWriteDepth = ThreadLocal.withInitial(() -> 0);
+    private final AtomicLong runtimeBackpressureUntilNanos = new AtomicLong();
 
     public boolean enabled() {
         return LucisConfig.enabled;
@@ -76,7 +78,12 @@ public final class LucisEngineController {
     }
 
     public boolean shouldHandleBlockChange(BlockPos pos) {
-        return enabled() && LucisConfig.enableRuntime && pos != null && !isWorldgenWriteSuppressed();
+        return enabled()
+                && LucisConfig.enableRuntime
+                && pos != null
+                && !isWorldgenWriteSuppressed()
+                && !runtimeBackpressureActive()
+                && runtimeManager.canAcceptMoreWork();
     }
 
     public boolean shouldHandleBlockChange(LightChunkGetter getter, BlockPos pos) {
@@ -94,7 +101,9 @@ public final class LucisEngineController {
             return;
         }
         long startedAt = LucisBenchmarkSupport.start();
-        runtimeManager.enqueue(new BlockChangeRecord(pos.immutable(), oldState, newState));
+        if (!runtimeManager.enqueue(new BlockChangeRecord(pos.immutable(), oldState, newState))) {
+            activateRuntimeBackpressure();
+        }
         LucisBenchmarkSupport.recordSince("lucis.enqueue_block_change", startedAt);
     }
 
@@ -103,7 +112,9 @@ public final class LucisEngineController {
             return;
         }
         long startedAt = LucisBenchmarkSupport.start();
-        runtimeManager.enqueue(new BlockChangeRecord(pos.immutable(), oldState, newState));
+        if (!runtimeManager.enqueue(new BlockChangeRecord(pos.immutable(), oldState, newState))) {
+            activateRuntimeBackpressure();
+        }
         LucisBenchmarkSupport.recordSince("lucis.enqueue_block_change", startedAt);
     }
 
@@ -144,6 +155,15 @@ public final class LucisEngineController {
 
     private boolean isWorldgenWriteSuppressed() {
         return worldgenWriteDepth.get() > 0;
+    }
+
+    private boolean runtimeBackpressureActive() {
+        return System.nanoTime() < runtimeBackpressureUntilNanos.get();
+    }
+
+    private void activateRuntimeBackpressure() {
+        LucisBenchmarkSupport.count("lucis.runtime.backpressure");
+        runtimeBackpressureUntilNanos.set(System.nanoTime() + 250_000_000L);
     }
 
     private boolean isSablePlotChunk(LightChunkGetter getter, ChunkPos chunkPos) {

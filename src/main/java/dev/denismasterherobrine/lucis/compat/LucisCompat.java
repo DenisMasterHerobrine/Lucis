@@ -18,7 +18,11 @@ public final class LucisCompat {
     public static boolean isSableLoaded() {
         Boolean cached = sableLoaded;
         if (cached == null) {
-            cached = ModList.get().isLoaded(SABLE_MOD_ID);
+            ModList modList = ModList.get();
+            if (modList == null) {
+                return false;
+            }
+            cached = modList.isLoaded(SABLE_MOD_ID);
             sableLoaded = cached;
         }
         return cached;
