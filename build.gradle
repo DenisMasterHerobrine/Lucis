@@ -17,6 +17,13 @@ group = mod_group_id
 
 repositories {
     mavenLocal()
+    maven {
+        name = 'CurseMaven'
+        url = 'https://www.cursemaven.com'
+        content {
+            includeGroup 'curse.maven'
+        }
+    }
 }
 
 base {
@@ -177,6 +184,10 @@ dependencies {
     // http://www.gradle.org/docs/current/userguide/artifact_dependencies_tutorial.html
     // http://www.gradle.org/docs/current/userguide/dependency_management.html
 
+    compileOnly('curse.maven:sable-1312371:8263584') {
+        transitive = false
+    }
+
     testImplementation platform('org.junit:junit-bom:5.10.3')
     testImplementation 'org.junit.jupiter:junit-jupiter'
 }
@@ -246,7 +257,7 @@ def registerBenchmarkServerPropertiesTask = { String taskName, String runDirecto
 online-mode=false
 server-port=${serverPort}
 max-tick-time=-1
-motd=Lucis Revisited Benchmark ${mode}
+motd=Lucis Benchmark ${mode}
 level-seed=${benchmarkLevelSeedValue}
 """.stripIndent().trim() + System.lineSeparator()
         }

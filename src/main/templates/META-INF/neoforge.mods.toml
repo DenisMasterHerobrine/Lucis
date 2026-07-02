@@ -25,7 +25,7 @@ displayName = "${mod_name}" #mandatory
 # A URL for the "homepage" for this mod, displayed in the mod UI
 #displayURL="https://change.me.to.your.mods.homepage.example.invalid/" #optional
 # A file name (in the root of the mod JAR) containing a logo for display
-#logoFile="lucisrevisited.png" #optional
+#logoFile="lucis.png" #optional
 # A text field displayed in the mod UI
 #credits="" #optional
 # A text field displayed in the mod UI
@@ -69,6 +69,30 @@ modId = "minecraft"
 type = "required"
 # This version range declares a minimum of the current minecraft version up to but not including the next major version
 versionRange = "${minecraft_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "sable"
+type = "optional"
+reason = "When Sable is present, Lucis defers to Sable's per-plot light engines to avoid light engine conflicts."
+versionRange = "[0,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "starlight"
+type = "incompatible"
+reason = "Lucis replaces the light engine and is incompatible with Starlight. Remove one of the two mods."
+versionRange = "[0,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies."${mod_id}"]]
+modId = "scalablelux"
+type = "incompatible"
+reason = "Lucis replaces the light engine and is incompatible with ScalableLux. Remove one of the two mods."
+versionRange = "[0,)"
 ordering = "NONE"
 side = "BOTH"
 
