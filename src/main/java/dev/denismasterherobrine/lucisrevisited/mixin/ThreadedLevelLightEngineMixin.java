@@ -76,12 +76,12 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
             return;
         }
 
-        long startedAt = System.nanoTime();
+        long startedAt = LucisBenchmarkSupport.start();
         ChunkPos chunkPos = chunk.getPos();
         if (trustEdges) {
             LucisBenchmarkSupport.count("lucis.light_chunk.trust_edges.skip");
             chunk.setLightCorrect(true);
-            LucisBenchmarkSupport.record("lucis.light_chunk", System.nanoTime() - startedAt);
+            LucisBenchmarkSupport.recordSince("lucis.light_chunk", startedAt);
             cir.setReturnValue(CompletableFuture.completedFuture(chunk));
             return;
         }
@@ -90,14 +90,14 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
         CompletableFuture<ChunkAccess> future = LucisServices.controller()
                 .relightChunkAsync(lucis$chunkSource, chunk, trustEdges)
                 .thenCompose(result -> {
-                    LucisBenchmarkSupport.record("lucis.light_chunk.compute", System.nanoTime() - startedAt);
-                    long publishStartedAt = System.nanoTime();
+                    LucisBenchmarkSupport.recordSince("lucis.light_chunk.compute", startedAt);
+                    long publishStartedAt = LucisBenchmarkSupport.start();
                     CompletableFuture<Void> published = lucis$publishAsync(result, chunkPos.x, chunkPos.z);
                     ((ThreadedLevelLightEngine) (Object) this).tryScheduleUpdate();
                     return published.thenApply(ignored -> {
-                        LucisBenchmarkSupport.record("lucis.light_chunk.publish_wait", System.nanoTime() - publishStartedAt);
+                        LucisBenchmarkSupport.recordSince("lucis.light_chunk.publish_wait", publishStartedAt);
                         chunk.setLightCorrect(true);
-                        LucisBenchmarkSupport.record("lucis.light_chunk", System.nanoTime() - startedAt);
+                        LucisBenchmarkSupport.recordSince("lucis.light_chunk", startedAt);
                         return chunk;
                     });
                 });
@@ -110,15 +110,15 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
             return;
         }
 
-        long startedAt = System.nanoTime();
-        LucisBenchmarkSupport.record("lucis.check_block", System.nanoTime() - startedAt);
+        long startedAt = LucisBenchmarkSupport.start();
+        LucisBenchmarkSupport.recordSince("lucis.check_block", startedAt);
         ci.cancel();
     }
 
     @Inject(method = "checkBlock", at = @At("HEAD"))
     private void lucis$startVanillaCheckBlock(BlockPos pos, CallbackInfo ci) {
-        if (!LucisServices.controller().enabled()) {
-            lucis$checkBlockStartedAt.set(System.nanoTime());
+        if (!LucisServices.controller().enabled() && LucisBenchmarkSupport.enabled()) {
+            lucis$checkBlockStartedAt.set(LucisBenchmarkSupport.start());
         }
     }
 
@@ -127,7 +127,7 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
         if (!LucisServices.controller().enabled()) {
             Long startedAt = lucis$checkBlockStartedAt.get();
             if (startedAt != null) {
-                LucisBenchmarkSupport.record("engine.check_block", System.nanoTime() - startedAt);
+                LucisBenchmarkSupport.recordSince("engine.check_block", startedAt);
             }
             lucis$checkBlockStartedAt.remove();
         }
@@ -141,7 +141,7 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
 
         ChunkPos chunkPos = chunk.getPos();
         CompletableFuture<Void> initialized = lucis$addPostTask(chunkPos.x, chunkPos.z, () -> {
-            long startedAt = System.nanoTime();
+            long startedAt = LucisBenchmarkSupport.start();
             LevelChunkSection[] sections = chunk.getSections();
             for (int i = 0; i < chunk.getSectionsCount(); i++) {
                 if (!sections[i].hasOnlyAir()) {
@@ -151,7 +151,7 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
             }
             super.setLightEnabled(chunkPos, bl);
             super.retainData(chunkPos, false);
-            LucisBenchmarkSupport.record("lucis.initialize_light.publish", System.nanoTime() - startedAt);
+            LucisBenchmarkSupport.recordSince("lucis.initialize_light.publish", startedAt);
         });
         ((ThreadedLevelLightEngine) (Object) this).tryScheduleUpdate();
         cir.setReturnValue(initialized.thenApply(ignored -> chunk));
@@ -169,12 +169,12 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
 
     @Unique
     private void lucis$publishDirect(LucisRelightResult result) {
-        long startedAt = System.nanoTime();
+        long startedAt = LucisBenchmarkSupport.start();
         for (LucisSectionData section : result.sections()) {
             super.queueSectionData(section.layer(), section.sectionPos(), section.dataLayer());
             super.updateSectionStatus(section.sectionPos(), false);
         }
-        LucisBenchmarkSupport.record("lucis.publish_direct", System.nanoTime() - startedAt);
+        LucisBenchmarkSupport.recordSince("lucis.publish_direct", startedAt);
         LucisBenchmarkSupport.count("lucis.publish_direct.sections", result.sections().size());
     }
 
@@ -217,7 +217,7 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
 
     @Unique
     private void lucis$drainQueuedLightTasks() {
-        long startedAt = System.nanoTime();
+        long startedAt = LucisBenchmarkSupport.start();
         List<LucisQueuedLightTask> batch = new ArrayList<>();
         synchronized (this.lucis$publishLock) {
             int count = Math.min(1000, this.lucis$pendingLightTasks.size());
@@ -238,7 +238,7 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
                     task.completion().complete(null);
                 }
             }
-            LucisBenchmarkSupport.record("lucis.publish_batch.drain", System.nanoTime() - startedAt);
+            LucisBenchmarkSupport.recordSince("lucis.publish_batch.drain", startedAt);
             LucisBenchmarkSupport.count("lucis.publish_batch.tasks", batch.size());
         } catch (Throwable throwable) {
             for (LucisQueuedLightTask task : batch) {

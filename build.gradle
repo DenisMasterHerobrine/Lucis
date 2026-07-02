@@ -10,6 +10,7 @@ def scalableLuxJarName = "ScalableLux-${scalableLuxVersion}-all.jar"
 def scalableLuxDownloadUrl = 'https://cdn.modrinth.com/data/Ps1zyz6x/versions/j10HNoNf/ScalableLux-0.1.0.1%2Bneoforge.1cb1e91-all.jar'
 def scalableLuxJar = layout.buildDirectory.file("downloads/${scalableLuxJarName}")
 def benchmarkLevelSeedValue = providers.gradleProperty('benchmarkLevelSeed').getOrElse('lucis-benchmark-seed')
+def benchmarkDefaultOutput = layout.buildDirectory.file('reports/lucis-light-benchmark.jsonl').get().asFile.absolutePath.replace('\\', '/')
 
 version = mod_version
 group = mod_group_id
@@ -36,16 +37,13 @@ neoForge {
     runs {
         client {
             client()
-
-            // Comma-separated list of namespaces to load gametests from. Empty = all namespaces.
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
         }
 
         clientMeasure {
             client()
             gameDirectory = project.file('run')
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
             systemProperty 'lucis.clientMeasure', 'true'
+            systemProperty 'lucis.debug', 'true'
             systemProperty 'lucis.enabled', providers.gradleProperty('clientMeasureLucisEnabled').getOrElse('true')
             systemProperty 'forge.logging.console.level', 'info'
             programArgument '--quickPlaySingleplayer'
@@ -56,18 +54,18 @@ neoForge {
         server {
             server()
             programArgument '--nogui'
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
         }
 
-        def configureBenchmarkRun = { runConfig, String runDir, String mode, boolean lucisEnabled ->
+        def configureBenchmarkRun = { runConfig, String runDir, String mode, boolean lucisEnabled, String expectedMod = '' ->
             runConfig.server()
             runConfig.gameDirectory = project.file(runDir)
             runConfig.programArgument '--nogui'
             runConfig.systemProperty 'lucis.benchmark', 'true'
+            runConfig.systemProperty 'lucis.debug', 'true'
             runConfig.systemProperty 'lucis.benchmark.mode', mode
-            runConfig.systemProperty 'lucis.benchmark.expectedMod', mode == 'scalablelux' ? 'scalablelux' : ''
+            runConfig.systemProperty 'lucis.benchmark.expectedMod', expectedMod
             runConfig.systemProperty 'lucis.benchmark.workload', providers.gradleProperty('benchmarkWorkload').getOrElse('block_toggle_dense')
-            runConfig.systemProperty 'lucis.benchmark.output', layout.buildDirectory.file('reports/lucis-light-benchmark.jsonl').get().asFile.absolutePath.replace('\\', '/')
+            runConfig.systemProperty 'lucis.benchmark.output', providers.gradleProperty('benchmarkOutput').getOrElse(benchmarkDefaultOutput)
             runConfig.systemProperty 'lucis.benchmark.radiusChunks', providers.gradleProperty('benchmarkRadiusChunks').getOrElse('3')
             runConfig.systemProperty 'lucis.benchmark.chunkSpan', providers.gradleProperty('benchmarkChunkSpan').getOrElse('0')
             runConfig.systemProperty 'lucis.benchmark.originX', providers.gradleProperty('benchmarkOriginX').getOrElse('0')
@@ -97,21 +95,23 @@ neoForge {
         }
 
         benchmarkScalableLuxServer {
-            configureBenchmarkRun(delegate, 'run-benchmark-scalablelux', 'scalablelux', false)
+            configureBenchmarkRun(delegate, 'run-benchmark-scalablelux', 'scalablelux', false, 'scalablelux')
         }
 
-        // This run config launches GameTestServer and runs all registered gametests, then exits.
-        // By default, the server will crash when no gametests are provided.
-        // The gametest system is also enabled by default for other run configs under the /test command.
-        gameTestServer {
-            type = "gameTestServer"
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        benchmarkGeneratorAcceleratorServer {
+            configureBenchmarkRun(delegate, 'run-benchmark-generator-accelerator', 'lucis+generator_accelerator', true, 'generator_accelerator')
         }
 
-        benchmarkGameTestServer {
-            type = "gameTestServer"
-            systemProperty 'neoforge.enabledGameTestNamespaces', 'lucisbench'
-            gameDirectory = project.file('run-benchmark')
+        benchmarkGeneratorAcceleratorOnlyServer {
+            configureBenchmarkRun(delegate, 'run-benchmark-generator-accelerator-only', 'generator_accelerator', false, 'generator_accelerator')
+        }
+
+        benchmarkC2meServer {
+            configureBenchmarkRun(delegate, 'run-benchmark-c2me', 'lucis+c2me', true, 'c2me')
+        }
+
+        benchmarkC2meOnlyServer {
+            configureBenchmarkRun(delegate, 'run-benchmark-c2me-only', 'c2me', false, 'c2me')
         }
 
         data {
@@ -185,18 +185,6 @@ tasks.withType(Test).configureEach {
     useJUnitPlatform()
 }
 
-tasks.register('prepareGameTestStructures', Copy) {
-    from('src/main/resources/data/lucisrevisited/gameteststructures')
-    include('*.snbt')
-    into(file('run/gameteststructures'))
-}
-
-tasks.register('prepareBenchmarkGameTestStructures', Copy) {
-    from('src/main/resources/data/lucisrevisited/gameteststructures')
-    include('*.snbt')
-    into(file('run-benchmark/gameteststructures'))
-}
-
 tasks.register('downloadScalableLuxJar') {
     outputs.file(scalableLuxJar)
     doLast {
@@ -218,6 +206,30 @@ tasks.register('prepareBenchmarkScalableLuxMods', Sync) {
     dependsOn tasks.named('downloadScalableLuxJar')
     from(scalableLuxJar)
     into(file('run-benchmark-scalablelux/mods'))
+}
+
+tasks.register('prepareBenchmarkGeneratorAcceleratorMods', Sync) {
+    dependsOn tasks.named('prepareBenchmarkGeneratorAcceleratorServerRun')
+    from(fileTree('mods') { include '*Generator Accelerator*.jar' })
+    into(file('run-benchmark-generator-accelerator/mods'))
+}
+
+tasks.register('prepareBenchmarkGeneratorAcceleratorOnlyMods', Sync) {
+    dependsOn tasks.named('prepareBenchmarkGeneratorAcceleratorOnlyServerRun')
+    from(fileTree('mods') { include '*Generator Accelerator*.jar' })
+    into(file('run-benchmark-generator-accelerator-only/mods'))
+}
+
+tasks.register('prepareBenchmarkC2meMods', Sync) {
+    dependsOn tasks.named('prepareBenchmarkC2meServerRun')
+    from(fileTree('mods') { include 'c2me-*.jar' })
+    into(file('run-benchmark-c2me/mods'))
+}
+
+tasks.register('prepareBenchmarkC2meOnlyMods', Sync) {
+    dependsOn tasks.named('prepareBenchmarkC2meOnlyServerRun')
+    from(fileTree('mods') { include 'c2me-*.jar' })
+    into(file('run-benchmark-c2me-only/mods'))
 }
 
 def registerBenchmarkServerPropertiesTask = { String taskName, String runDirectory, String mode, int serverPort ->
@@ -244,14 +256,10 @@ level-seed=${benchmarkLevelSeedValue}
 registerBenchmarkServerPropertiesTask('prepareBenchmarkVanillaServerProperties', 'run-benchmark-vanilla', 'vanilla', 25665)
 registerBenchmarkServerPropertiesTask('prepareBenchmarkScalableLuxServerProperties', 'run-benchmark-scalablelux', 'scalablelux', 25666)
 registerBenchmarkServerPropertiesTask('prepareBenchmarkLucisServerProperties', 'run-benchmark-lucis', 'lucis', 25667)
-
-tasks.named('runGameTestServer').configure {
-    dependsOn tasks.named('prepareGameTestStructures')
-}
-
-tasks.named('runBenchmarkGameTestServer').configure {
-    dependsOn tasks.named('prepareBenchmarkGameTestStructures')
-}
+registerBenchmarkServerPropertiesTask('prepareBenchmarkGeneratorAcceleratorServerProperties', 'run-benchmark-generator-accelerator', 'lucis+generator_accelerator', 25668)
+registerBenchmarkServerPropertiesTask('prepareBenchmarkC2meServerProperties', 'run-benchmark-c2me', 'lucis+c2me', 25669)
+registerBenchmarkServerPropertiesTask('prepareBenchmarkGeneratorAcceleratorOnlyServerProperties', 'run-benchmark-generator-accelerator-only', 'generator_accelerator', 25670)
+registerBenchmarkServerPropertiesTask('prepareBenchmarkC2meOnlyServerProperties', 'run-benchmark-c2me-only', 'c2me', 25671)
 
 tasks.named('runBenchmarkScalableLuxServer').configure {
     dependsOn tasks.named('prepareBenchmarkScalableLuxMods'), tasks.named('prepareBenchmarkScalableLuxServerProperties')
@@ -263,6 +271,22 @@ tasks.named('runBenchmarkVanillaServer').configure {
 
 tasks.named('runBenchmarkServer').configure {
     dependsOn tasks.named('prepareBenchmarkLucisServerProperties')
+}
+
+tasks.named('runBenchmarkGeneratorAcceleratorServer').configure {
+    dependsOn tasks.named('prepareBenchmarkGeneratorAcceleratorMods'), tasks.named('prepareBenchmarkGeneratorAcceleratorServerProperties')
+}
+
+tasks.named('runBenchmarkGeneratorAcceleratorOnlyServer').configure {
+    dependsOn tasks.named('prepareBenchmarkGeneratorAcceleratorOnlyMods'), tasks.named('prepareBenchmarkGeneratorAcceleratorOnlyServerProperties')
+}
+
+tasks.named('runBenchmarkC2meServer').configure {
+    dependsOn tasks.named('prepareBenchmarkC2meMods'), tasks.named('prepareBenchmarkC2meServerProperties')
+}
+
+tasks.named('runBenchmarkC2meOnlyServer').configure {
+    dependsOn tasks.named('prepareBenchmarkC2meOnlyMods'), tasks.named('prepareBenchmarkC2meOnlyServerProperties')
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.

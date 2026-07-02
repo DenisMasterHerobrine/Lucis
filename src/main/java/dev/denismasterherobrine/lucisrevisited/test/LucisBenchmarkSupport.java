@@ -19,7 +19,18 @@ public final class LucisBenchmarkSupport {
     private LucisBenchmarkSupport() {
     }
 
+    public static boolean enabled() {
+        return LucisConfig.debug;
+    }
+
+    public static long start() {
+        return enabled() ? System.nanoTime() : 0L;
+    }
+
     public static void reset() {
+        if (!enabled()) {
+            return;
+        }
         TIME_NANOS.clear();
         COUNTS.clear();
         COUNTERS.clear();
@@ -31,6 +42,9 @@ public final class LucisBenchmarkSupport {
     }
 
     public static Snapshot snapshot() {
+        if (!enabled()) {
+            return new Snapshot(Map.of(), Map.of());
+        }
         Map<String, Metric> metrics = new TreeMap<>();
         TIME_NANOS.forEach((key, nanos) -> metrics.put(key, new Metric(nanos.sum(), COUNTS.getOrDefault(key, new LongAdder()).sum())));
         Map<String, Long> counters = new TreeMap<>();
@@ -39,11 +53,18 @@ public final class LucisBenchmarkSupport {
     }
 
     public static void record(String key, long nanos) {
-        if (nanos <= 0L) {
+        if (!enabled() || nanos <= 0L) {
             return;
         }
         TIME_NANOS.computeIfAbsent(key, ignored -> new LongAdder()).add(nanos);
         COUNTS.computeIfAbsent(key, ignored -> new LongAdder()).increment();
+    }
+
+    public static void recordSince(String key, long startedAtNanos) {
+        if (!enabled() || startedAtNanos == 0L) {
+            return;
+        }
+        record(key, System.nanoTime() - startedAtNanos);
     }
 
     public static void count(String key) {
@@ -51,13 +72,16 @@ public final class LucisBenchmarkSupport {
     }
 
     public static void count(String key, long amount) {
-        if (amount == 0L) {
+        if (!enabled() || amount == 0L) {
             return;
         }
         COUNTERS.computeIfAbsent(key, ignored -> new LongAdder()).add(amount);
     }
 
     public static void logResult(String name, int iterations, long startedAtNanos, long endedAtNanos) {
+        if (!enabled()) {
+            return;
+        }
         long elapsedNanos = Math.max(0L, endedAtNanos - startedAtNanos);
         double elapsedMs = elapsedNanos / 1_000_000.0;
         double perIterationMs = iterations == 0 ? 0.0 : elapsedMs / iterations;
@@ -99,10 +123,15 @@ public final class LucisBenchmarkSupport {
 
     private static String activeMode() {
         boolean scalableLux = ModList.get().isLoaded("scalablelux");
+        boolean generatorAccelerator = ModList.get().isLoaded("generator_accelerator");
+        boolean c2me = ModList.get().isLoaded("c2me");
+        String suffix = (scalableLux ? "+scalablelux" : "")
+                + (generatorAccelerator ? "+generator_accelerator" : "")
+                + (c2me ? "+c2me" : "");
         if (LucisConfig.enabled) {
-            return scalableLux ? "lucis+scalablelux" : "lucis";
+            return "lucis" + suffix;
         }
-        return scalableLux ? "scalablelux" : "vanilla";
+        return suffix.isEmpty() ? "vanilla" : suffix.substring(1);
     }
 
     private static double totalLightMs() {

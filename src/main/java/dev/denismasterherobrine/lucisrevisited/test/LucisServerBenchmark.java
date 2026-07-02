@@ -46,7 +46,7 @@ public final class LucisServerBenchmark {
 
     @SubscribeEvent
     static void onServerStarted(ServerStartedEvent event) {
-        if (!Boolean.getBoolean("lucis.benchmark")) {
+        if (!Boolean.getBoolean("lucis.benchmark") || !LucisConfig.debug) {
             return;
         }
         BenchmarkConfig config = BenchmarkConfig.fromProperties();

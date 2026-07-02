@@ -2,12 +2,12 @@ package dev.denismasterherobrine.lucisrevisited.light.runtime;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.PriorityBlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class LucisScheduler implements AutoCloseable {
-    private final PriorityBlockingQueue<LucisJob> queue = new PriorityBlockingQueue<>();
+    private final LinkedBlockingQueue<LucisJob> queue = new LinkedBlockingQueue<>();
     private final ExecutorService workers;
     private final AtomicInteger activeJobs = new AtomicInteger();
     private volatile boolean running = true;

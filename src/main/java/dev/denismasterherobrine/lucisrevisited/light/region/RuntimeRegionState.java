@@ -1,11 +1,7 @@
 package dev.denismasterherobrine.lucisrevisited.light.region;
 
-import java.util.EnumMap;
-import java.util.List;
-
 public final class RuntimeRegionState {
     private final RegionLightData data;
-    private final EnumMap<RegionSide, BoundarySnapshot> pendingBoundarySnapshots = new EnumMap<>(RegionSide.class);
     private volatile boolean initialized;
     private volatile long lastAccessNanos;
 
@@ -25,22 +21,6 @@ public final class RuntimeRegionState {
     public void markInitialized() {
         initialized = true;
         touch();
-    }
-
-    public void putBoundarySnapshot(BoundarySnapshot snapshot) {
-        pendingBoundarySnapshots.put(snapshot.side(), snapshot);
-    }
-
-    public BoundarySnapshot getBoundarySnapshot(RegionSide side) {
-        touch();
-        return pendingBoundarySnapshots.get(side);
-    }
-
-    public List<BoundarySnapshot> drainBoundarySnapshots() {
-        touch();
-        List<BoundarySnapshot> drained = List.copyOf(pendingBoundarySnapshots.values());
-        pendingBoundarySnapshots.clear();
-        return drained;
     }
 
     public void touch() {

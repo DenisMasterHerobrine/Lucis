@@ -43,12 +43,14 @@ public final class LucisEngineController {
     }
 
     public CompletableFuture<LucisRelightResult> relightChunkAsync(LightChunkGetter getter, ChunkAccess chunk, boolean trustEdges) {
-        long submittedAt = System.nanoTime();
+        long submittedAt = LucisBenchmarkSupport.start();
         return CompletableFuture.supplyAsync(() -> {
-            long startedAt = System.nanoTime();
-            LucisBenchmarkSupport.record("lucis.light_chunk.worker_wait", startedAt - submittedAt);
+            long startedAt = LucisBenchmarkSupport.start();
+            if (startedAt != 0L && submittedAt != 0L) {
+                LucisBenchmarkSupport.record("lucis.light_chunk.worker_wait", startedAt - submittedAt);
+            }
             LucisRelightResult result = relightChunk(getter, chunk, trustEdges);
-            LucisBenchmarkSupport.record("lucis.light_chunk.worker_compute", System.nanoTime() - startedAt);
+            LucisBenchmarkSupport.recordSince("lucis.light_chunk.worker_compute", startedAt);
             return result;
         }, worldgenWorkers);
     }
@@ -69,9 +71,9 @@ public final class LucisEngineController {
         if (!shouldHandleBlockChange(pos)) {
             return;
         }
-        long startedAt = System.nanoTime();
+        long startedAt = LucisBenchmarkSupport.start();
         runtimeManager.enqueue(new BlockChangeRecord(pos.immutable(), oldState, newState));
-        LucisBenchmarkSupport.record("lucis.enqueue_block_change", System.nanoTime() - startedAt);
+        LucisBenchmarkSupport.recordSince("lucis.enqueue_block_change", startedAt);
     }
 
     public void tickRuntime(ThreadedLevelLightEngine lightEngine, LightChunkGetter getter) {

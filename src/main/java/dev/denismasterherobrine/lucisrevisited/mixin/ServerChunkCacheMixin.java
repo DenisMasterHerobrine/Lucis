@@ -20,8 +20,8 @@ public abstract class ServerChunkCacheMixin {
 
     @Inject(method = "tick", at = @At("TAIL"))
     private void lucis$tick(java.util.function.BooleanSupplier hasTimeLeft, boolean tickChunks, CallbackInfo ci) {
-        long startedAt = System.nanoTime();
+        long startedAt = LucisBenchmarkSupport.start();
         LucisServices.controller().tickRuntime(lightEngine, (LightChunkGetter) (Object) this);
-        LucisBenchmarkSupport.record("lucis.runtime_tick", System.nanoTime() - startedAt);
+        LucisBenchmarkSupport.recordSince("lucis.runtime_tick", startedAt);
     }
 }

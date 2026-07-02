@@ -2,12 +2,10 @@ package dev.denismasterherobrine.lucisrevisited.light.engine;
 
 import dev.denismasterherobrine.lucisrevisited.light.LightMaterial;
 import dev.denismasterherobrine.lucisrevisited.light.LightMaterialCache;
-import dev.denismasterherobrine.lucisrevisited.light.region.BoundaryDelta;
 import dev.denismasterherobrine.lucisrevisited.light.region.RegionBounds;
 import dev.denismasterherobrine.lucisrevisited.light.region.RegionLightData;
 import dev.denismasterherobrine.lucisrevisited.light.region.RuntimeRegionState;
 import dev.denismasterherobrine.lucisrevisited.light.runtime.LucisRelightResult;
-import dev.denismasterherobrine.lucisrevisited.light.runtime.BoundaryCellChange;
 import dev.denismasterherobrine.lucisrevisited.light.runtime.BlockChangeRecord;
 import dev.denismasterherobrine.lucisrevisited.light.runtime.RuntimeLightChange;
 import dev.denismasterherobrine.lucisrevisited.test.LucisBenchmarkSupport;
@@ -26,7 +24,6 @@ public final class LucisRelighter {
     private final LucisSkyLightEngine skyLightEngine = new LucisSkyLightEngine();
     private final LucisBlockLightEngine blockLightEngine = new LucisBlockLightEngine();
     private final LucisRemoveEngine removeEngine = new LucisRemoveEngine();
-    private final LucisBoundaryEngine boundaryEngine = new LucisBoundaryEngine();
     private final LucisPublishEngine publishEngine = new LucisPublishEngine();
 
     public LucisRelighter(LightMaterialCache materialCache, LucisRegionExtractor extractor) {
@@ -38,23 +35,23 @@ public final class LucisRelighter {
                                            int regionChunks, int haloChunks) {
         ChunkPos chunkPos = chunk.getPos();
         RegionBounds bounds = RegionBounds.around(chunkPos, chunk.getHeightAccessorForGeneration(), regionChunks, haloChunks);
-        long startedAt = System.nanoTime();
+        long startedAt = LucisBenchmarkSupport.start();
         RegionLightData data = extractor.extract(getter, bounds);
-        LucisBenchmarkSupport.record("lucis.stage.worldgen.extract", System.nanoTime() - startedAt);
-        startedAt = System.nanoTime();
+        LucisBenchmarkSupport.recordSince("lucis.stage.worldgen.extract", startedAt);
+        startedAt = LucisBenchmarkSupport.start();
         removeEngine.applyChanges(data, List.of());
         if (enableSky) {
             skyLightEngine.compute(data);
         }
-        LucisBenchmarkSupport.record("lucis.stage.worldgen.sky", System.nanoTime() - startedAt);
-        startedAt = System.nanoTime();
+        LucisBenchmarkSupport.recordSince("lucis.stage.worldgen.sky", startedAt);
+        startedAt = LucisBenchmarkSupport.start();
         if (enableBlock) {
             blockLightEngine.compute(data);
         }
-        LucisBenchmarkSupport.record("lucis.stage.worldgen.block", System.nanoTime() - startedAt);
-        startedAt = System.nanoTime();
+        LucisBenchmarkSupport.recordSince("lucis.stage.worldgen.block", startedAt);
+        startedAt = LucisBenchmarkSupport.start();
         LucisRelightResult result = publishEngine.publishChunk(chunkPos, data);
-        LucisBenchmarkSupport.record("lucis.stage.worldgen.publish", System.nanoTime() - startedAt);
+        LucisBenchmarkSupport.recordSince("lucis.stage.worldgen.publish", startedAt);
         LucisBenchmarkSupport.count("lucis.worldgen.sections", result.sections().size());
         return result;
     }
@@ -62,23 +59,23 @@ public final class LucisRelighter {
     public List<LucisRelightResult> relightRegion(LightChunkGetter getter, ChunkPos anchorChunk, boolean enableSky, boolean enableBlock,
                                                   int regionChunks, int haloChunks) {
         RegionBounds bounds = RegionBounds.around(anchorChunk, getter.getLevel(), regionChunks, haloChunks);
-        long startedAt = System.nanoTime();
+        long startedAt = LucisBenchmarkSupport.start();
         RegionLightData data = extractor.extract(getter, bounds);
-        LucisBenchmarkSupport.record("lucis.stage.region.extract", System.nanoTime() - startedAt);
+        LucisBenchmarkSupport.recordSince("lucis.stage.region.extract", startedAt);
         removeEngine.applyChanges(data, List.of());
-        startedAt = System.nanoTime();
+        startedAt = LucisBenchmarkSupport.start();
         if (enableSky) {
             skyLightEngine.compute(data);
         }
-        LucisBenchmarkSupport.record("lucis.stage.region.sky", System.nanoTime() - startedAt);
-        startedAt = System.nanoTime();
+        LucisBenchmarkSupport.recordSince("lucis.stage.region.sky", startedAt);
+        startedAt = LucisBenchmarkSupport.start();
         if (enableBlock) {
             blockLightEngine.compute(data);
         }
-        LucisBenchmarkSupport.record("lucis.stage.region.block", System.nanoTime() - startedAt);
-        startedAt = System.nanoTime();
+        LucisBenchmarkSupport.recordSince("lucis.stage.region.block", startedAt);
+        startedAt = LucisBenchmarkSupport.start();
         List<LucisRelightResult> results = publishEngine.publishRegion(data);
-        LucisBenchmarkSupport.record("lucis.stage.region.publish", System.nanoTime() - startedAt);
+        LucisBenchmarkSupport.recordSince("lucis.stage.region.publish", startedAt);
         countPublished("lucis.region", results);
         return results;
     }
@@ -88,27 +85,24 @@ public final class LucisRelighter {
         RegionLightData data = state.data();
         if (!state.initialized()) {
             LucisBenchmarkSupport.count("lucis.runtime.region.init");
-            long startedAt = System.nanoTime();
+            long startedAt = LucisBenchmarkSupport.start();
             extractor.populate(getter, data);
-            LucisBenchmarkSupport.record("lucis.stage.runtime.init.extract", System.nanoTime() - startedAt);
+            LucisBenchmarkSupport.recordSince("lucis.stage.runtime.init.extract", startedAt);
             removeEngine.applyChanges(data, List.of());
-            startedAt = System.nanoTime();
+            startedAt = LucisBenchmarkSupport.start();
             if (enableSky) {
                 skyLightEngine.compute(data);
             }
-            LucisBenchmarkSupport.record("lucis.stage.runtime.init.sky", System.nanoTime() - startedAt);
-            startedAt = System.nanoTime();
+            LucisBenchmarkSupport.recordSince("lucis.stage.runtime.init.sky", startedAt);
+            startedAt = LucisBenchmarkSupport.start();
             if (enableBlock) {
                 blockLightEngine.compute(data);
             }
-            LucisBenchmarkSupport.record("lucis.stage.runtime.init.block", System.nanoTime() - startedAt);
-            startedAt = System.nanoTime();
-            applyPendingBoundary(state, enableSky, enableBlock);
-            LucisBenchmarkSupport.record("lucis.stage.runtime.init.boundary", System.nanoTime() - startedAt);
+            LucisBenchmarkSupport.recordSince("lucis.stage.runtime.init.block", startedAt);
             state.markInitialized();
-            startedAt = System.nanoTime();
+            startedAt = LucisBenchmarkSupport.start();
             List<LucisRelightResult> results = publishEngine.publishRegion(data);
-            LucisBenchmarkSupport.record("lucis.stage.runtime.init.publish", System.nanoTime() - startedAt);
+            LucisBenchmarkSupport.recordSince("lucis.stage.runtime.init.publish", startedAt);
             countPublished("lucis.runtime.init", results);
             data.clearDirty();
             return results;
@@ -121,20 +115,20 @@ public final class LucisRelighter {
         LucisBenchmarkSupport.count("lucis.runtime.region.incremental");
         LucisBenchmarkSupport.count("lucis.runtime.change.records", changes.size());
         data.clearDirty();
-        long startedAt = System.nanoTime();
+        long startedAt = LucisBenchmarkSupport.start();
         List<RuntimeLightChange> runtimeChanges = materializeChanges(getter.getLevel(), changes);
-        LucisBenchmarkSupport.record("lucis.stage.runtime.incremental.materialize", System.nanoTime() - startedAt);
-        startedAt = System.nanoTime();
+        LucisBenchmarkSupport.recordSince("lucis.stage.runtime.incremental.materialize", startedAt);
+        startedAt = LucisBenchmarkSupport.start();
         applyMaterialChanges(data, runtimeChanges);
-        LucisBenchmarkSupport.record("lucis.stage.runtime.incremental.materials", System.nanoTime() - startedAt);
-        startedAt = System.nanoTime();
+        LucisBenchmarkSupport.recordSince("lucis.stage.runtime.incremental.materials", startedAt);
+        startedAt = LucisBenchmarkSupport.start();
         boolean opacityChanged = hasOpacityChange(runtimeChanges);
         LucisBenchmarkSupport.count(opacityChanged ? "lucis.runtime.opacity.changed" : "lucis.runtime.opacity.unchanged");
         if (enableSky && opacityChanged) {
             skyLightEngine.applyRuntimeChanges(data, runtimeChanges);
         }
-        LucisBenchmarkSupport.record("lucis.stage.runtime.incremental.sky", System.nanoTime() - startedAt);
-        startedAt = System.nanoTime();
+        LucisBenchmarkSupport.recordSince("lucis.stage.runtime.incremental.sky", startedAt);
+        startedAt = LucisBenchmarkSupport.start();
         boolean emissionChanged = hasEmissionChange(runtimeChanges);
         LucisBenchmarkSupport.count(emissionChanged ? "lucis.runtime.emission.changed" : "lucis.runtime.emission.unchanged");
         if (enableBlock && emissionChanged) {
@@ -147,10 +141,10 @@ public final class LucisRelighter {
         } else if (enableBlock) {
             LucisBenchmarkSupport.count("lucis.runtime.block.skipped.noEmissionChange");
         }
-        LucisBenchmarkSupport.record("lucis.stage.runtime.incremental.block", System.nanoTime() - startedAt);
-        startedAt = System.nanoTime();
+        LucisBenchmarkSupport.recordSince("lucis.stage.runtime.incremental.block", startedAt);
+        startedAt = LucisBenchmarkSupport.start();
         List<LucisRelightResult> results = publishEngine.publishRegion(data);
-        LucisBenchmarkSupport.record("lucis.stage.runtime.incremental.publish", System.nanoTime() - startedAt);
+        LucisBenchmarkSupport.recordSince("lucis.stage.runtime.incremental.publish", startedAt);
         countPublished("lucis.runtime.incremental", results);
         data.clearDirty();
         return results;
@@ -210,51 +204,5 @@ public final class LucisRelighter {
         }
         LucisBenchmarkSupport.count(prefix + ".results", results.size());
         LucisBenchmarkSupport.count(prefix + ".sections", sections);
-    }
-
-    public List<BoundaryDelta> captureBoundaryDeltas(RuntimeRegionState state) {
-        return boundaryEngine.capture(state.data());
-    }
-
-    public void applyBoundaryDelta(RuntimeRegionState state, BoundaryDelta delta) {
-        state.putBoundarySnapshot(boundaryEngine.toSnapshot(delta));
-    }
-
-    public List<LucisRelightResult> applyBoundaryUpdates(RuntimeRegionState state, boolean enableSky, boolean enableBlock) {
-        if (!state.initialized()) {
-            return List.of();
-        }
-        return List.of();
-    }
-
-    public List<LucisRelightResult> refreshRuntimeRegion(LightChunkGetter getter, RuntimeRegionState state,
-                                                         boolean enableSky, boolean enableBlock) {
-        if (!state.initialized()) {
-            return List.of();
-        }
-
-        RegionLightData data = state.data();
-        extractor.populate(getter, data);
-        removeEngine.applyChanges(data, List.of());
-        if (enableSky) {
-            skyLightEngine.compute(data);
-        }
-        if (enableBlock) {
-            blockLightEngine.compute(data);
-        }
-        return publishEngine.publishRegion(data);
-    }
-
-    private void applyPendingBoundary(RuntimeRegionState state, boolean enableSky, boolean enableBlock) {
-        List<BoundaryCellChange> changes = boundaryEngine.apply(state);
-        if (changes.isEmpty()) {
-            return;
-        }
-        if (enableBlock) {
-            blockLightEngine.applyBoundaryChanges(state.data(), changes);
-        }
-        if (enableSky) {
-            skyLightEngine.applyBoundaryChanges(state.data(), changes);
-        }
     }
 }

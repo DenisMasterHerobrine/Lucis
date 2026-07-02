@@ -1,6 +1,7 @@
 package dev.denismasterherobrine.lucisrevisited.test;
 
 import dev.denismasterherobrine.lucisrevisited.LucisRevisited;
+import dev.denismasterherobrine.lucisrevisited.config.LucisConfig;
 import dev.denismasterherobrine.lucisrevisited.light.engine.LucisServices;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -14,7 +15,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @EventBusSubscriber(modid = LucisRevisited.MODID)
 public final class LucisClientLoadDiagnostics {
-    private static final boolean ENABLED = Boolean.getBoolean("lucis.clientMeasure");
     private static final AtomicBoolean PLAYER_LOGGED = new AtomicBoolean();
     private static volatile long startedAtNanos;
 
@@ -27,7 +27,7 @@ public final class LucisClientLoadDiagnostics {
             return;
         }
         LucisServices.resetController();
-        if (!ENABLED) {
+        if (!enabled()) {
             return;
         }
         LucisBenchmarkSupport.reset();
@@ -38,7 +38,7 @@ public final class LucisClientLoadDiagnostics {
 
     @SubscribeEvent
     static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
-        if (!ENABLED || startedAtNanos == 0L || !PLAYER_LOGGED.compareAndSet(false, true)) {
+        if (!enabled() || startedAtNanos == 0L || !PLAYER_LOGGED.compareAndSet(false, true)) {
             return;
         }
         logSnapshot("player_join", System.nanoTime());
@@ -46,7 +46,7 @@ public final class LucisClientLoadDiagnostics {
 
     @SubscribeEvent
     static void onServerStopping(ServerStoppingEvent event) {
-        if (!ENABLED || startedAtNanos == 0L || event.getServer().isDedicatedServer()) {
+        if (!enabled() || startedAtNanos == 0L || event.getServer().isDedicatedServer()) {
             return;
         }
         logSnapshot("server_stopping", System.nanoTime());
@@ -69,6 +69,10 @@ public final class LucisClientLoadDiagnostics {
                 format(elapsedMs),
                 formatMetrics(snapshot.metrics()),
                 snapshot.counters());
+    }
+
+    private static boolean enabled() {
+        return Boolean.getBoolean("lucis.clientMeasure") && LucisConfig.debug;
     }
 
     private static String formatMetrics(Map<String, LucisBenchmarkSupport.Metric> metrics) {

@@ -53,6 +53,10 @@ public final class LucisConfig {
             .comment("Extra engine diagnostics")
             .define("verboseLogging", false);
 
+    private static final ModConfigSpec.BooleanValue DEBUG = BUILDER
+            .comment("Enable debug-only metrics and diagnostics")
+            .define("debug", false);
+
     public static final ModConfigSpec SPEC = BUILDER.build();
 
     public static volatile boolean enabled = true;
@@ -65,6 +69,7 @@ public final class LucisConfig {
     public static volatile boolean enableSky = true;
     public static volatile boolean enableBlock = true;
     public static volatile boolean verboseLogging = false;
+    public static volatile boolean debug = false;
 
     private LucisConfig() {
     }
@@ -95,6 +100,7 @@ public final class LucisConfig {
         enableSky = ENABLE_SKY.get();
         enableBlock = ENABLE_BLOCK.get();
         verboseLogging = VERBOSE_LOGGING.get();
+        debug = DEBUG.get();
         applyOverrides();
     }
 
@@ -105,6 +111,7 @@ public final class LucisConfig {
         enableSky = overrideBoolean("lucis.enableSky", enableSky);
         enableBlock = overrideBoolean("lucis.enableBlock", enableBlock);
         verboseLogging = overrideBoolean("lucis.verboseLogging", verboseLogging);
+        debug = overrideBoolean("lucis.debug", debug);
         regionChunks = overrideInt("lucis.regionChunks", regionChunks);
         haloChunks = overrideInt("lucis.haloChunks", haloChunks);
         maxBatchChunks = overrideInt("lucis.maxBatchChunks", maxBatchChunks);

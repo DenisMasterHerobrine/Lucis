@@ -3,7 +3,6 @@ package dev.denismasterherobrine.lucisrevisited.light.engine;
 import dev.denismasterherobrine.lucisrevisited.light.LucisConstants;
 import dev.denismasterherobrine.lucisrevisited.light.region.RegionBounds;
 import dev.denismasterherobrine.lucisrevisited.light.region.RegionLightData;
-import dev.denismasterherobrine.lucisrevisited.light.runtime.BoundaryCellChange;
 import dev.denismasterherobrine.lucisrevisited.light.runtime.RuntimeLightChange;
 import dev.denismasterherobrine.lucisrevisited.light.util.IntBucketQueue;
 import dev.denismasterherobrine.lucisrevisited.light.util.IntRingQueue;
@@ -155,32 +154,6 @@ public final class LucisBlockLightEngine {
             data.blockLight[nextIndex] = (byte) light;
             data.markDirtyBlockIndex(nextIndex);
         }
-    }
-
-    public void applyBoundaryChanges(RegionLightData data, List<BoundaryCellChange> changes) {
-        Queues queues = this.queues.get();
-        IntBucketQueue queue = queues.lightQueue;
-        IntRingQueue removeIndices = queues.removeIndices;
-        IntRingQueue removeLevels = queues.removeLevels;
-        queue.clear();
-        removeIndices.clear();
-        removeLevels.clear();
-
-        for (BoundaryCellChange change : changes) {
-            int oldLight = change.oldBlock() & 0xF;
-            int newLight = change.newBlock() & 0xF;
-            data.blockLight[change.index()] = change.newBlock();
-            if (newLight < oldLight) {
-                enqueueRemoval(removeIndices, removeLevels, change.index(), oldLight);
-            }
-            if (newLight > 0) {
-                queue.enqueue(newLight, change.index());
-            }
-            enqueueNeighborAdds(data, change.index());
-        }
-
-        processRemovals(data, queue, removeIndices, removeLevels);
-        processAdds(data, queue);
     }
 
     private void enqueueRemoval(IntRingQueue removeIndices, IntRingQueue removeLevels, int index, int lightLevel) {
