@@ -12,7 +12,6 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,6 +31,8 @@ public final class LucisRuntimeManager implements AutoCloseable {
     private final ConcurrentLinkedQueue<LucisRelightResult> commitQueue = new ConcurrentLinkedQueue<>();
     private final Set<Long> scheduledRegions = ConcurrentHashMap.newKeySet();
     private final AtomicLong ownerIds = new AtomicLong();
+    private final ArrayList<BlockChangeRecord> drainedChanges = new ArrayList<>(256);
+    private final HashMap<Long, List<BlockChangeRecord>> changesByRegion = new HashMap<>();
     private volatile boolean closed;
 
     public boolean enqueue(BlockChangeRecord record) {
@@ -68,18 +69,20 @@ public final class LucisRuntimeManager implements AutoCloseable {
             return;
         }
 
-        Map<Long, List<BlockChangeRecord>> byRegion = new HashMap<>();
-        Collection<BlockChangeRecord> drained = updateQueue.drain();
-        LucisBenchmarkSupport.count("lucis.runtime.drain.records", drained.size());
-        for (BlockChangeRecord record : drained) {
-            long regionKey = regionKey(record.pos().getX() >> 4, record.pos().getZ() >> 4, regionChunks);
-            byRegion.computeIfAbsent(regionKey, ignored -> new ArrayList<>()).add(record);
+        drainedChanges.clear();
+        changesByRegion.clear();
+        int drained = updateQueue.drainTo(drainedChanges);
+        LucisBenchmarkSupport.count("lucis.runtime.drain.records", drained);
+        for (BlockChangeRecord record : drainedChanges) {
+            long regionKey = regionKey(record.x() >> 4, record.z() >> 4, regionChunks);
+            changesByRegion.computeIfAbsent(regionKey, ignored -> new ArrayList<>()).add(record);
         }
-        LucisBenchmarkSupport.count("lucis.runtime.drain.regions", byRegion.size());
+        drainedChanges.clear();
+        LucisBenchmarkSupport.count("lucis.runtime.drain.regions", changesByRegion.size());
 
         int scheduled = 0;
         int maxSubmits = runtimeSubmitBudget();
-        for (Map.Entry<Long, List<BlockChangeRecord>> entry : byRegion.entrySet()) {
+        for (Map.Entry<Long, List<BlockChangeRecord>> entry : changesByRegion.entrySet()) {
             if (scheduled >= maxSubmits) {
                 LucisBenchmarkSupport.count("lucis.runtime.requeued.batchLimit");
                 updateQueue.enqueueAll(entry.getValue());
@@ -88,6 +91,7 @@ public final class LucisRuntimeManager implements AutoCloseable {
             scheduleRegion(entry.getKey(), entry.getValue(), getter, relighter, regionChunks, haloChunks, enableSky, enableBlock);
             scheduled++;
         }
+        changesByRegion.clear();
     }
 
     private void scheduleRegion(long regionKey, List<BlockChangeRecord> changes, LightChunkGetter getter,

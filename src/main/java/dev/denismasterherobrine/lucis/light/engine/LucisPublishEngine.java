@@ -17,7 +17,7 @@ import java.util.List;
 
 public final class LucisPublishEngine {
     public LucisRelightResult publishChunk(ChunkPos chunkPos, RegionLightData data) {
-        List<LucisSectionData> sections = new ArrayList<>();
+        List<LucisSectionData> sections = new ArrayList<>(data.bounds.sectionCount() << 1);
         RegionBounds bounds = data.bounds;
         int minChunkX = bounds.originChunkX();
         int minChunkZ = bounds.originChunkZ();
@@ -35,7 +35,7 @@ public final class LucisPublishEngine {
     }
 
     public List<LucisRelightResult> publishRegion(RegionLightData data) {
-        List<LucisRelightResult> results = new ArrayList<>();
+        List<LucisRelightResult> results = new ArrayList<>(data.bounds.regionChunks() * data.bounds.regionChunks());
         for (int chunkZ = 0; chunkZ < data.bounds.regionChunks(); chunkZ++) {
             for (int chunkX = 0; chunkX < data.bounds.regionChunks(); chunkX++) {
                 ChunkPos chunkPos = new ChunkPos(data.bounds.originChunkX() + chunkX, data.bounds.originChunkZ() + chunkZ);
@@ -49,11 +49,11 @@ public final class LucisPublishEngine {
     }
 
     private void collect(RegionLightData data, ChunkPos chunkPos, LightLayer layer, boolean sky, BitSet dirtyMask, List<LucisSectionData> out) {
-        int sectionWidth = data.bounds.widthBlocks() >> 4;
+        int sectionWidth = data.sectionWidth;
         int localChunkX = chunkPos.x - (data.bounds.originChunkX() - data.bounds.haloChunks());
         int localChunkZ = chunkPos.z - (data.bounds.originChunkZ() - data.bounds.haloChunks());
         int sectionIndexBase = localChunkX + localChunkZ * sectionWidth;
-        int sectionsPerPlane = sectionWidth * sectionWidth;
+        int sectionsPerPlane = data.sectionsPerPlane;
         byte[] source = sky ? data.skyLight : data.blockLight;
 
         for (int sectionY = 0; sectionY < data.bounds.sectionCount(); sectionY++) {

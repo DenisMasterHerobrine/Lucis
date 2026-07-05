@@ -1,8 +1,6 @@
 package dev.denismasterherobrine.lucis.light.runtime;
 
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -38,14 +36,15 @@ public final class RuntimeUpdateQueue {
         return accepted;
     }
 
-    public Collection<BlockChangeRecord> drain() {
-        List<BlockChangeRecord> drained = new ArrayList<>();
+    public int drainTo(Collection<BlockChangeRecord> drained) {
+        int count = 0;
         BlockChangeRecord record;
         while ((record = pending.poll()) != null) {
             drained.add(record);
             pendingCount.decrementAndGet();
+            count++;
         }
-        return drained;
+        return count;
     }
 
     public boolean isEmpty() {

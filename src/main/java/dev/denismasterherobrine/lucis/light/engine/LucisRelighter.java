@@ -23,8 +23,9 @@ public final class LucisRelighter {
     private final LightMaterialCache materialCache;
     private final LucisSkyLightEngine skyLightEngine = new LucisSkyLightEngine();
     private final LucisBlockLightEngine blockLightEngine = new LucisBlockLightEngine();
-    private final LucisRemoveEngine removeEngine = new LucisRemoveEngine();
     private final LucisPublishEngine publishEngine = new LucisPublishEngine();
+    private final ThreadLocal<ArrayList<RuntimeLightChange>> runtimeChangeBuffers = ThreadLocal.withInitial(() -> new ArrayList<>(256));
+    private final ThreadLocal<BlockPos.MutableBlockPos> runtimeMaterialPos = ThreadLocal.withInitial(BlockPos.MutableBlockPos::new);
 
     public LucisRelighter(LightMaterialCache materialCache, LucisRegionExtractor extractor) {
         this.materialCache = materialCache;
@@ -39,7 +40,6 @@ public final class LucisRelighter {
         RegionLightData data = extractor.extract(getter, bounds);
         LucisBenchmarkSupport.recordSince("lucis.stage.worldgen.extract", startedAt);
         startedAt = LucisBenchmarkSupport.start();
-        removeEngine.applyChanges(data, List.of());
         if (enableSky) {
             skyLightEngine.compute(data);
         }
@@ -62,7 +62,6 @@ public final class LucisRelighter {
         long startedAt = LucisBenchmarkSupport.start();
         RegionLightData data = extractor.extract(getter, bounds);
         LucisBenchmarkSupport.recordSince("lucis.stage.region.extract", startedAt);
-        removeEngine.applyChanges(data, List.of());
         startedAt = LucisBenchmarkSupport.start();
         if (enableSky) {
             skyLightEngine.compute(data);
@@ -88,7 +87,6 @@ public final class LucisRelighter {
             long startedAt = LucisBenchmarkSupport.start();
             extractor.populate(getter, data);
             LucisBenchmarkSupport.recordSince("lucis.stage.runtime.init.extract", startedAt);
-            removeEngine.applyChanges(data, List.of());
             startedAt = LucisBenchmarkSupport.start();
             if (enableSky) {
                 skyLightEngine.compute(data);
@@ -116,8 +114,15 @@ public final class LucisRelighter {
         LucisBenchmarkSupport.count("lucis.runtime.change.records", changes.size());
         data.clearDirty();
         long startedAt = LucisBenchmarkSupport.start();
-        List<RuntimeLightChange> runtimeChanges = materializeChanges(getter.getLevel(), changes);
+        ArrayList<RuntimeLightChange> runtimeChanges = runtimeChangeBuffers.get();
+        runtimeChanges.clear();
+        materializeChanges(getter.getLevel(), changes, runtimeChanges);
         LucisBenchmarkSupport.recordSince("lucis.stage.runtime.incremental.materialize", startedAt);
+        if (runtimeChanges.isEmpty()) {
+            LucisBenchmarkSupport.count("lucis.runtime.change.light_noop", changes.size());
+            runtimeChanges.clear();
+            return List.of();
+        }
         startedAt = LucisBenchmarkSupport.start();
         applyMaterialChanges(data, runtimeChanges);
         LucisBenchmarkSupport.recordSince("lucis.stage.runtime.incremental.materials", startedAt);
@@ -147,35 +152,45 @@ public final class LucisRelighter {
         LucisBenchmarkSupport.recordSince("lucis.stage.runtime.incremental.publish", startedAt);
         countPublished("lucis.runtime.incremental", results);
         data.clearDirty();
+        runtimeChanges.clear();
         return results;
     }
 
-    private List<RuntimeLightChange> materializeChanges(BlockGetter level, List<BlockChangeRecord> changes) {
-        List<RuntimeLightChange> runtimeChanges = new ArrayList<>(changes.size());
+    private void materializeChanges(BlockGetter level, List<BlockChangeRecord> changes, List<RuntimeLightChange> runtimeChanges) {
+        BlockPos.MutableBlockPos pos = runtimeMaterialPos.get();
         for (BlockChangeRecord change : changes) {
-            BlockPos pos = change.pos();
+            pos.set(change.x(), change.y(), change.z());
             LightMaterial oldMaterial = materialCache.lookup(level, change.oldState(), pos);
             LightMaterial newMaterial = materialCache.lookup(level, change.newState(), pos);
+            if (oldMaterial.opacity() == newMaterial.opacity() && oldMaterial.emission() == newMaterial.emission()) {
+                continue;
+            }
             runtimeChanges.add(new RuntimeLightChange(
-                    pos.getX(), pos.getY(), pos.getZ(),
+                    change.x(), change.y(), change.z(),
                     oldMaterial.opacity(), newMaterial.opacity(),
                     oldMaterial.emission(), newMaterial.emission()
             ));
         }
-        return runtimeChanges;
     }
 
     private void applyMaterialChanges(RegionLightData data, List<RuntimeLightChange> changes) {
+        RegionBounds bounds = data.bounds;
+        int minBlockX = bounds.minBlockX();
+        int minBlockZ = bounds.minBlockZ();
+        int minBuildY = bounds.minBuildY();
+        int width = bounds.widthBlocks();
+        int depth = bounds.depthBlocks();
+        int height = bounds.heightBlocks();
         for (RuntimeLightChange change : changes) {
-            if (!data.isInside(change.worldX(), change.worldY(), change.worldZ())) {
+            int localX = change.worldX() - minBlockX;
+            int localY = change.worldY() - minBuildY;
+            int localZ = change.worldZ() - minBlockZ;
+            if (localX < 0 || localX >= width || localZ < 0 || localZ >= depth || localY < 0 || localY >= height) {
                 continue;
             }
-            int index = data.index(change.worldX(), change.worldY(), change.worldZ());
+            int index = data.localIndex(localX, localY, localZ);
             data.opacity[index] = change.newOpacity();
             data.emission[index] = change.newEmission();
-            if (change.newOpacity() != 0 || change.newEmission() != 0) {
-                data.markNonEmpty(change.worldX(), change.worldY() >> 4, change.worldZ());
-            }
         }
     }
 

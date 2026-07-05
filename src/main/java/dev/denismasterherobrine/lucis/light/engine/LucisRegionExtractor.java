@@ -33,15 +33,24 @@ public final class LucisRegionExtractor {
         int maxChunkX = (bounds.maxBlockXExclusive() - 1) >> 4;
         int minChunkZ = bounds.minBlockZ() >> 4;
         int maxChunkZ = (bounds.maxBlockZExclusive() - 1) >> 4;
+        int minBlockX = bounds.minBlockX();
+        int minBlockZ = bounds.minBlockZ();
+        int maxBlockX = bounds.maxBlockXExclusive();
+        int maxBlockZ = bounds.maxBlockZExclusive();
+        int width = bounds.widthBlocks();
+        int area = bounds.area();
         int chunkWidth = maxChunkX - minChunkX + 1;
         LightChunk[] chunks = new LightChunk[chunkWidth * (maxChunkZ - minChunkZ + 1)];
         boolean[] chunkResolved = new boolean[chunks.length];
 
         for (int worldY = bounds.minBuildY(); worldY < bounds.maxBuildY(); worldY++) {
-            int sectionY = worldY >> 4;
-            for (int worldZ = bounds.minBlockZ(); worldZ < bounds.maxBlockZExclusive(); worldZ++) {
+            int localY = worldY - bounds.minBuildY();
+            int yBase = localY * area;
+            for (int worldZ = minBlockZ; worldZ < maxBlockZ; worldZ++) {
                 int chunkZ = worldZ >> 4;
-                for (int worldX = bounds.minBlockX(); worldX < bounds.maxBlockXExclusive(); worldX++) {
+                int localZ = worldZ - minBlockZ;
+                int rowBase = yBase + localZ * width;
+                for (int worldX = minBlockX; worldX < maxBlockX; worldX++) {
                     int chunkX = worldX >> 4;
                     int chunkIndex = (chunkX - minChunkX) + (chunkZ - minChunkZ) * chunkWidth;
                     LightChunk chunk = chunks[chunkIndex];
@@ -60,12 +69,9 @@ public final class LucisRegionExtractor {
                     }
 
                     LightMaterial material = materialCache.lookup(level, state, mutable);
-                    int index = data.index(worldX, worldY, worldZ);
+                    int index = rowBase + (worldX - minBlockX);
                     data.opacity[index] = material.opacity();
                     data.emission[index] = material.emission();
-                    if (!material.isAir()) {
-                        data.markNonEmpty(worldX, sectionY, worldZ);
-                    }
                 }
             }
         }

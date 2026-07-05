@@ -101,7 +101,7 @@ public final class LucisEngineController {
             return;
         }
         long startedAt = LucisBenchmarkSupport.start();
-        if (!runtimeManager.enqueue(new BlockChangeRecord(pos.immutable(), oldState, newState))) {
+        if (!runtimeManager.enqueue(new BlockChangeRecord(pos.getX(), pos.getY(), pos.getZ(), oldState, newState))) {
             activateRuntimeBackpressure();
         }
         LucisBenchmarkSupport.recordSince("lucis.enqueue_block_change", startedAt);
@@ -112,7 +112,7 @@ public final class LucisEngineController {
             return;
         }
         long startedAt = LucisBenchmarkSupport.start();
-        if (!runtimeManager.enqueue(new BlockChangeRecord(pos.immutable(), oldState, newState))) {
+        if (!runtimeManager.enqueue(new BlockChangeRecord(pos.getX(), pos.getY(), pos.getZ(), oldState, newState))) {
             activateRuntimeBackpressure();
         }
         LucisBenchmarkSupport.recordSince("lucis.enqueue_block_change", startedAt);

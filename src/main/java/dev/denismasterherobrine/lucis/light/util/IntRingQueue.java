@@ -38,6 +38,14 @@ public final class IntRingQueue {
         if (size == 0) {
             throw new NoSuchElementException("IntRingQueue is empty");
         }
+        return pollUnchecked();
+    }
+
+    public int poll() {
+        return size == 0 ? Integer.MIN_VALUE : pollUnchecked();
+    }
+
+    private int pollUnchecked() {
         int value = data[head];
         head = (head + 1) % data.length;
         size--;

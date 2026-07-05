@@ -11,6 +11,9 @@ def scalableLuxDownloadUrl = 'https://cdn.modrinth.com/data/Ps1zyz6x/versions/j1
 def scalableLuxJar = layout.buildDirectory.file("downloads/${scalableLuxJarName}")
 def benchmarkLevelSeedValue = providers.gradleProperty('benchmarkLevelSeed').getOrElse('lucis-benchmark-seed')
 def benchmarkDefaultOutput = layout.buildDirectory.file('reports/lucis-light-benchmark.jsonl').get().asFile.absolutePath.replace('\\', '/')
+def scalableLuxDependencyType = providers.gradleProperty('benchmarkAllowScalableLux')
+        .map { it.toBoolean() ? 'discouraged' : 'incompatible' }
+        .getOrElse('incompatible')
 
 version = mod_version
 group = mod_group_id
@@ -313,7 +316,8 @@ var generateModMetadata = tasks.register("generateModMetadata", ProcessResources
                              mod_license            : mod_license,
                              mod_version            : mod_version,
                              mod_authors            : mod_authors,
-                             mod_description        : mod_description]
+                             mod_description        : mod_description,
+                             scalablelux_dependency_type: scalableLuxDependencyType]
     inputs.properties replaceProperties
     expand replaceProperties
     from "src/main/templates"

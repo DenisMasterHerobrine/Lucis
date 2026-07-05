@@ -25,9 +25,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Deque;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.TimeUnit;
@@ -50,6 +48,8 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
     private final Object lucis$publishLock = new Object();
     @Unique
     private final Deque<LucisQueuedLightTask> lucis$pendingLightTasks = new ArrayDeque<>();
+    @Unique
+    private final ArrayDeque<LucisQueuedLightTask> lucis$publishBatch = new ArrayDeque<>(1000);
     @Unique
     private final AtomicBoolean lucis$publishScheduled = new AtomicBoolean();
     @Unique
@@ -218,7 +218,8 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
     @Unique
     private void lucis$drainQueuedLightTasks() {
         long startedAt = LucisBenchmarkSupport.start();
-        List<LucisQueuedLightTask> batch = new ArrayList<>();
+        ArrayDeque<LucisQueuedLightTask> batch = this.lucis$publishBatch;
+        batch.clear();
         synchronized (this.lucis$publishLock) {
             int count = Math.min(1000, this.lucis$pendingLightTasks.size());
             for (int index = 0; index < count; index++) {
@@ -248,6 +249,7 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
             }
             throw throwable;
         } finally {
+            batch.clear();
             this.lucis$publishScheduled.set(false);
             boolean hasMore;
             synchronized (this.lucis$publishLock) {

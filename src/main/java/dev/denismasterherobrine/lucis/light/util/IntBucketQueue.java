@@ -55,4 +55,9 @@ public final class IntBucketQueue {
         }
         return buckets[level].dequeue();
     }
+
+    public int poll() {
+        int level = dequeueLevel();
+        return level < 0 ? -1 : buckets[level].dequeue();
+    }
 }

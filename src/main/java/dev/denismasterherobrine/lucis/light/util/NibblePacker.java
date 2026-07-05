@@ -9,15 +9,19 @@ public final class NibblePacker {
 
     public static DataLayer packSection(RegionLightData data, byte[] source, int sectionWorldX, int sectionY, int sectionWorldZ) {
         byte[] packed = new byte[2048];
-        int worldY = sectionY << 4;
+        int baseX = sectionWorldX - data.bounds.minBlockX();
+        int baseY = (sectionY << 4) - data.bounds.minBuildY();
+        int baseZ = sectionWorldZ - data.bounds.minBlockZ();
+        int width = data.bounds.widthBlocks();
+        int area = data.bounds.area();
         int write = 0;
         for (int localY = 0; localY < 16; localY++) {
-            int blockY = worldY + localY;
+            int layerBase = (baseY + localY) * area;
             for (int localZ = 0; localZ < 16; localZ++) {
-                int blockZ = sectionWorldZ + localZ;
+                int rowBase = layerBase + (baseZ + localZ) * width + baseX;
                 for (int localX = 0; localX < 16; localX += 2) {
-                    int lo = source[data.index(sectionWorldX + localX, blockY, blockZ)] & 0xF;
-                    int hi = source[data.index(sectionWorldX + localX + 1, blockY, blockZ)] & 0xF;
+                    int lo = source[rowBase + localX] & 0xF;
+                    int hi = source[rowBase + localX + 1] & 0xF;
                     packed[write++] = (byte) (lo | (hi << 4));
                 }
             }

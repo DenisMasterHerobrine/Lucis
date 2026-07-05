@@ -90,7 +90,7 @@ side = "BOTH"
 
 [[dependencies."${mod_id}"]]
 modId = "scalablelux"
-type = "incompatible"
+type = "${scalablelux_dependency_type}"
 reason = "Lucis replaces the light engine and is incompatible with ScalableLux. Remove one of the two mods."
 versionRange = "[0,)"
 ordering = "NONE"

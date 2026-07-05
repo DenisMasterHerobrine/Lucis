@@ -17,41 +17,44 @@ public final class LucisBlockLightEngine {
         IntBucketQueue queue = queues.lightQueue;
         queue.clear();
         RegionBounds bounds = data.bounds;
+        byte[] emissionArray = data.emission;
+        byte[] blockLight = data.blockLight;
+        int volume = bounds.volume();
+        int area = bounds.area();
+        int width = bounds.widthBlocks();
+        int depth = bounds.depthBlocks();
+        int height = bounds.heightBlocks();
 
-        for (int worldY = bounds.minBuildY(); worldY < bounds.maxBuildY(); worldY++) {
-            int localY = worldY - bounds.minBuildY();
-            for (int worldZ = bounds.minBlockZ(); worldZ < bounds.maxBlockZExclusive(); worldZ++) {
-                int localZ = worldZ - bounds.minBlockZ();
-                for (int worldX = bounds.minBlockX(); worldX < bounds.maxBlockXExclusive(); worldX++) {
-                    int index = data.index(worldX, worldY, worldZ);
-                    int emission = data.emission[index] & 0xF;
-                    data.blockLight[index] = (byte) emission;
-                    data.markDirtyBlock(worldX, worldY >> 4, worldZ);
-                    if (emission > 0) {
-                        queue.enqueue(emission, index);
-                    }
-                }
+        for (int index = 0; index < volume; index++) {
+            int emission = emissionArray[index] & 0xF;
+            if (emission <= 0) {
+                continue;
+            }
+            blockLight[index] = (byte) emission;
+            if (emission > 1) {
+                queue.enqueue(emission, index);
             }
         }
+        data.markCoreBlockSectionsDirty();
 
-        while (!queue.isEmpty()) {
-            int index = queue.dequeue();
+        int index;
+        while ((index = queue.poll()) >= 0) {
             int current = data.blockLight[index] & 0xF;
             if (current <= 1) {
                 continue;
             }
 
-            int y = index / bounds.area();
-            int rem = index - y * bounds.area();
-            int z = rem / bounds.widthBlocks();
-            int x = rem - z * bounds.widthBlocks();
+            int y = index / area;
+            int rem = index - y * area;
+            int z = rem / width;
+            int x = rem - z * width;
 
-            trySpread(data, queue, current, x + 1, y, z, index + data.offsetPosX);
-            trySpread(data, queue, current, x - 1, y, z, index + data.offsetNegX);
-            trySpread(data, queue, current, x, y, z + 1, index + data.offsetPosZ);
-            trySpread(data, queue, current, x, y, z - 1, index + data.offsetNegZ);
-            trySpread(data, queue, current, x, y + 1, z, index + data.offsetPosY);
-            trySpread(data, queue, current, x, y - 1, z, index + data.offsetNegY);
+            if (x + 1 < width) spreadTo(data, queue, current, x + 1, y, z, index + data.offsetPosX);
+            if (x > 0) spreadTo(data, queue, current, x - 1, y, z, index + data.offsetNegX);
+            if (z + 1 < depth) spreadTo(data, queue, current, x, y, z + 1, index + data.offsetPosZ);
+            if (z > 0) spreadTo(data, queue, current, x, y, z - 1, index + data.offsetNegZ);
+            if (y + 1 < height) spreadTo(data, queue, current, x, y + 1, z, index + data.offsetPosY);
+            if (y > 0) spreadTo(data, queue, current, x, y - 1, z, index + data.offsetNegY);
         }
     }
 
@@ -63,12 +66,22 @@ public final class LucisBlockLightEngine {
         queue.clear();
         removeIndices.clear();
         removeLevels.clear();
+        RegionBounds bounds = data.bounds;
+        int minBlockX = bounds.minBlockX();
+        int minBlockZ = bounds.minBlockZ();
+        int minBuildY = bounds.minBuildY();
+        int width = bounds.widthBlocks();
+        int depth = bounds.depthBlocks();
+        int height = bounds.heightBlocks();
 
         for (RuntimeLightChange change : changes) {
-            if (!data.isInside(change.worldX(), change.worldY(), change.worldZ())) {
+            int localX = change.worldX() - minBlockX;
+            int localY = change.worldY() - minBuildY;
+            int localZ = change.worldZ() - minBlockZ;
+            if (localX < 0 || localX >= width || localZ < 0 || localZ >= depth || localY < 0 || localY >= height) {
                 continue;
             }
-            int index = data.index(change.worldX(), change.worldY(), change.worldZ());
+            int index = data.localIndex(localX, localY, localZ);
             int oldLight = data.blockLight[index] & 0xF;
             int oldOpacity = change.oldOpacity() & 0xF;
             int newOpacity = change.newOpacity() & 0xF;
@@ -76,13 +89,13 @@ public final class LucisBlockLightEngine {
             int newEmission = change.newEmission() & 0xF;
 
             data.blockLight[index] = (byte) newEmission;
-            data.markDirtyBlock(change.worldX(), change.worldY() >> 4, change.worldZ());
+            data.markDirtyBlockLocal(localX, localY, localZ);
 
             if (oldLight > 0 && (newEmission < oldEmission || newOpacity > oldOpacity)) {
                 enqueueRemoval(removeIndices, removeLevels, index, oldLight);
             }
 
-            if (newEmission > 0) {
+            if (newEmission > 1) {
                 queue.enqueue(newEmission, index);
             }
 
@@ -94,14 +107,24 @@ public final class LucisBlockLightEngine {
     }
 
     public void applyRuntimeChangesFast(RegionLightData data, List<RuntimeLightChange> changes) {
+        RegionBounds bounds = data.bounds;
+        int minBlockX = bounds.minBlockX();
+        int minBlockZ = bounds.minBlockZ();
+        int minBuildY = bounds.minBuildY();
+        int width = bounds.widthBlocks();
+        int depth = bounds.depthBlocks();
+        int height = bounds.heightBlocks();
         for (RuntimeLightChange change : changes) {
-            if (!data.isInside(change.worldX(), change.worldY(), change.worldZ())) {
+            int localX = change.worldX() - minBlockX;
+            int localY = change.worldY() - minBuildY;
+            int localZ = change.worldZ() - minBlockZ;
+            if (localX < 0 || localX >= width || localZ < 0 || localZ >= depth || localY < 0 || localY >= height) {
                 continue;
             }
-            int index = data.index(change.worldX(), change.worldY(), change.worldZ());
+            int index = data.localIndex(localX, localY, localZ);
             int emission = change.newEmission() & 0xF;
             data.blockLight[index] = (byte) emission;
-            data.markDirtyBlock(change.worldX(), change.worldY() >> 4, change.worldZ());
+            data.markDirtyBlockLocal(localX, localY, localZ);
             if (emission <= 1) {
                 clearImmediateNeighbors(data, index);
             } else {
@@ -139,7 +162,7 @@ public final class LucisBlockLightEngine {
                 || nextY < 0 || nextY >= data.bounds.heightBlocks()) {
             return;
         }
-        int candidate = Math.max(0, light - (data.opacity[nextIndex] & 0xF));
+        int candidate = light - (data.opacity[nextIndex] & 0xF);
         if (candidate > (data.blockLight[nextIndex] & 0xF)) {
             setNeighborLight(data, candidate, nextX, nextY, nextZ, nextIndex);
         }
@@ -152,7 +175,7 @@ public final class LucisBlockLightEngine {
         }
         if ((data.blockLight[nextIndex] & 0xF) != light) {
             data.blockLight[nextIndex] = (byte) light;
-            data.markDirtyBlockIndex(nextIndex);
+            data.markDirtyBlockLocal(nextX, nextY, nextZ);
         }
     }
 
@@ -165,9 +188,9 @@ public final class LucisBlockLightEngine {
     }
 
     private void processRemovals(RegionLightData data, IntBucketQueue queue, IntRingQueue removeIndices, IntRingQueue removeLevels) {
-        while (!removeIndices.isEmpty()) {
-            int index = removeIndices.dequeue();
-            int removedLevel = removeLevels.dequeue();
+        int index;
+        while ((index = removeIndices.poll()) != Integer.MIN_VALUE) {
+            int removedLevel = removeLevels.poll();
             int x = data.localX(index);
             int y = data.localY(index);
             int z = data.localZ(index);
@@ -182,7 +205,9 @@ public final class LucisBlockLightEngine {
             int emission = data.emission[index] & 0xF;
             if (emission > 0) {
                 data.blockLight[index] = (byte) emission;
-                queue.enqueue(emission, index);
+                if (emission > 1) {
+                    queue.enqueue(emission, index);
+                }
             }
         }
     }
@@ -204,29 +229,36 @@ public final class LucisBlockLightEngine {
             data.markDirtyBlockIndex(nextIndex);
             enqueueRemoval(removeIndices, removeLevels, nextIndex, neighborLight);
         } else {
-            queue.enqueue(neighborLight, nextIndex);
+            if (neighborLight > 1) {
+                queue.enqueue(neighborLight, nextIndex);
+            }
         }
     }
 
     private void processAdds(RegionLightData data, IntBucketQueue queue) {
-        while (!queue.isEmpty()) {
-            int index = queue.dequeue();
+        RegionBounds bounds = data.bounds;
+        int area = bounds.area();
+        int width = bounds.widthBlocks();
+        int depth = bounds.depthBlocks();
+        int height = bounds.heightBlocks();
+        int index;
+        while ((index = queue.poll()) >= 0) {
             int current = data.blockLight[index] & 0xF;
             if (current <= 1) {
                 continue;
             }
 
-            int y = index / data.bounds.area();
-            int rem = index - y * data.bounds.area();
-            int z = rem / data.bounds.widthBlocks();
-            int x = rem - z * data.bounds.widthBlocks();
+            int y = index / area;
+            int rem = index - y * area;
+            int z = rem / width;
+            int x = rem - z * width;
 
-            trySpread(data, queue, current, x + 1, y, z, index + data.offsetPosX);
-            trySpread(data, queue, current, x - 1, y, z, index + data.offsetNegX);
-            trySpread(data, queue, current, x, y, z + 1, index + data.offsetPosZ);
-            trySpread(data, queue, current, x, y, z - 1, index + data.offsetNegZ);
-            trySpread(data, queue, current, x, y + 1, z, index + data.offsetPosY);
-            trySpread(data, queue, current, x, y - 1, z, index + data.offsetNegY);
+            if (x + 1 < width) spreadTo(data, queue, current, x + 1, y, z, index + data.offsetPosX);
+            if (x > 0) spreadTo(data, queue, current, x - 1, y, z, index + data.offsetNegX);
+            if (z + 1 < depth) spreadTo(data, queue, current, x, y, z + 1, index + data.offsetPosZ);
+            if (z > 0) spreadTo(data, queue, current, x, y, z - 1, index + data.offsetNegZ);
+            if (y + 1 < height) spreadTo(data, queue, current, x, y + 1, z, index + data.offsetPosY);
+            if (y > 0) spreadTo(data, queue, current, x, y - 1, z, index + data.offsetNegY);
         }
     }
 
@@ -249,24 +281,16 @@ public final class LucisBlockLightEngine {
             return;
         }
         int light = data.blockLight[nextIndex] & 0xF;
-        if (light > 0) {
+        if (light > 1) {
             queue.enqueue(light, nextIndex);
         }
     }
 
-    private void trySpread(RegionLightData data, IntBucketQueue queue, int current, int nextX, int nextY, int nextZ, int nextIndex) {
-        RegionBounds bounds = data.bounds;
-        if (nextX < 0 || nextX >= bounds.widthBlocks() || nextZ < 0 || nextZ >= bounds.depthBlocks() || nextY < 0 || nextY >= bounds.heightBlocks()) {
-            return;
-        }
-
-        int candidate = Math.max(0, current - 1 - (data.opacity[nextIndex] & 0xF));
+    private void spreadTo(RegionLightData data, IntBucketQueue queue, int current, int nextX, int nextY, int nextZ, int nextIndex) {
+        int candidate = current - 1 - (data.opacity[nextIndex] & 0xF);
         if (candidate > (data.blockLight[nextIndex] & 0xF)) {
             data.blockLight[nextIndex] = (byte) candidate;
-            int worldX = bounds.minBlockX() + nextX;
-            int worldY = bounds.minBuildY() + nextY;
-            int worldZ = bounds.minBlockZ() + nextZ;
-            data.markDirtyBlock(worldX, worldY >> 4, worldZ);
+            data.markDirtyBlockLocal(nextX, nextY, nextZ);
             if (candidate > 1) {
                 queue.enqueue(candidate, nextIndex);
             }
