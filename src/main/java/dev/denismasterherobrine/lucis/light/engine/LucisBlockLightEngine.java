@@ -1,6 +1,5 @@
 package dev.denismasterherobrine.lucis.light.engine;
 
-import dev.denismasterherobrine.lucis.light.LucisConstants;
 import dev.denismasterherobrine.lucis.light.region.RegionBounds;
 import dev.denismasterherobrine.lucis.light.region.RegionLightData;
 import dev.denismasterherobrine.lucis.light.runtime.RuntimeLightChange;

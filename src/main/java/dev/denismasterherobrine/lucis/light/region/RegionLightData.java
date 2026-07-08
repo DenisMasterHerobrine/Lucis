@@ -1,6 +1,5 @@
 package dev.denismasterherobrine.lucis.light.region;
 
-import dev.denismasterherobrine.lucis.light.LucisConstants;
 import net.minecraft.core.SectionPos;
 
 import java.util.BitSet;
