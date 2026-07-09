@@ -6,7 +6,6 @@ import dev.denismasterherobrine.lucis.light.region.RegionBounds;
 import dev.denismasterherobrine.lucis.light.region.RegionLightData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.BlockGetter;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
@@ -43,6 +42,11 @@ public final class LucisRegionExtractor {
         LightChunk[] chunks = new LightChunk[chunkWidth * (maxChunkZ - minChunkZ + 1)];
         boolean[] chunkResolved = new boolean[chunks.length];
 
+        int coreMinBlockX = bounds.originChunkX() << 4;
+        int coreMaxBlockX = coreMinBlockX + bounds.regionChunks() * 16;
+        int coreMinBlockZ = bounds.originChunkZ() << 4;
+        int coreMaxBlockZ = coreMinBlockZ + bounds.regionChunks() * 16;
+
         for (int worldY = bounds.minBuildY(); worldY < bounds.maxBuildY(); worldY++) {
             int localY = worldY - bounds.minBuildY();
             int yBase = localY * area;
@@ -61,7 +65,10 @@ public final class LucisRegionExtractor {
                     }
                     BlockState state;
                     if (chunk == null) {
-                        state = Blocks.BEDROCK.defaultBlockState();
+                        state = worldX >= coreMinBlockX && worldX < coreMaxBlockX
+                                && worldZ >= coreMinBlockZ && worldZ < coreMaxBlockZ
+                                ? net.minecraft.world.level.block.Blocks.BEDROCK.defaultBlockState()
+                                : net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
                         mutable.set(worldX, worldY, worldZ);
                     } else {
                         mutable.set(worldX, worldY, worldZ);

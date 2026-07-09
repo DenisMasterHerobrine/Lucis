@@ -78,14 +78,6 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
 
         long startedAt = LucisBenchmarkSupport.start();
         ChunkPos chunkPos = chunk.getPos();
-        if (trustEdges) {
-            LucisBenchmarkSupport.count("lucis.light_chunk.trust_edges.skip");
-            chunk.setLightCorrect(true);
-            LucisBenchmarkSupport.recordSince("lucis.light_chunk", startedAt);
-            cir.setReturnValue(CompletableFuture.completedFuture(chunk));
-            return;
-        }
-
         chunk.setLightCorrect(false);
         CompletableFuture<ChunkAccess> future = LucisServices.controller()
                 .relightChunkAsync(lucis$chunkSource, chunk, trustEdges)
