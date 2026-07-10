@@ -13,6 +13,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 
 import java.util.ArrayList;
@@ -37,7 +38,7 @@ public final class LucisRelighter {
         ChunkPos chunkPos = chunk.getPos();
         RegionBounds bounds = RegionBounds.around(chunkPos, chunk.getHeightAccessorForGeneration(), regionChunks, haloChunks);
         long startedAt = LucisBenchmarkSupport.start();
-        RegionLightData data = extractor.extract(getter, bounds);
+        RegionLightData data = extractor.extract(getter, bounds, chunk);
         LucisBenchmarkSupport.recordSince("lucis.stage.worldgen.extract", startedAt);
         startedAt = LucisBenchmarkSupport.start();
         if (enableSky) {
@@ -79,13 +80,15 @@ public final class LucisRelighter {
         return results;
     }
 
-    public List<LucisRelightResult> relightRuntimeRegion(LightChunkGetter getter, RuntimeRegionState state, List<BlockChangeRecord> changes,
-                                                      boolean enableSky, boolean enableBlock) {
+    public List<LucisRelightResult> relightRuntimeRegion(LightChunkGetter getter, RuntimeRegionState state, LightChunk coreChunk,
+                                                        List<BlockChangeRecord> changes, boolean enableSky, boolean enableBlock) {
         RegionLightData data = state.data();
-        if (!state.initialized()) {
-            LucisBenchmarkSupport.count("lucis.runtime.region.init");
+        if (!state.initializedFor(coreChunk)) {
+            LucisBenchmarkSupport.count(state.initialized()
+                    ? "lucis.runtime.region.reload"
+                    : "lucis.runtime.region.init");
             long startedAt = LucisBenchmarkSupport.start();
-            extractor.populate(getter, data);
+            extractor.populate(getter, data, coreChunk);
             LucisBenchmarkSupport.recordSince("lucis.stage.runtime.init.extract", startedAt);
             startedAt = LucisBenchmarkSupport.start();
             if (enableSky) {
@@ -97,7 +100,7 @@ public final class LucisRelighter {
                 blockLightEngine.compute(data);
             }
             LucisBenchmarkSupport.recordSince("lucis.stage.runtime.init.block", startedAt);
-            state.markInitialized();
+            state.markInitialized(coreChunk);
             startedAt = LucisBenchmarkSupport.start();
             List<LucisRelightResult> results = publishEngine.publishRegion(data);
             LucisBenchmarkSupport.recordSince("lucis.stage.runtime.init.publish", startedAt);

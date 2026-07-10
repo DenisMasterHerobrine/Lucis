@@ -14,6 +14,7 @@ import net.minecraft.server.level.ThreadedLevelLightEngine;
 import net.minecraft.util.thread.ProcessorMailbox;
 import net.minecraft.util.thread.ProcessorHandle;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.lighting.LevelLightEngine;
@@ -150,17 +151,24 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
     }
 
     @Override
-    public void lucis$publish(LucisRelightResult result) {
-        lucis$addPreTask(result.chunkPos().x, result.chunkPos().z, () -> lucis$publishDirect(result));
+    public void lucis$publish(LucisRelightResult result, LightChunk expectedChunk) {
+        lucis$addPreTask(result.chunkPos().x, result.chunkPos().z, () -> lucis$publishDirect(result, expectedChunk));
     }
 
     @Unique
     private CompletableFuture<Void> lucis$publishAsync(LucisRelightResult result, int chunkX, int chunkZ) {
-        return lucis$addPostTask(chunkX, chunkZ, () -> lucis$publishDirect(result));
+        return lucis$addPostTask(chunkX, chunkZ, () -> lucis$publishDirect(result, null));
     }
 
     @Unique
-    private void lucis$publishDirect(LucisRelightResult result) {
+    private void lucis$publishDirect(LucisRelightResult result, LightChunk expectedChunk) {
+        if (expectedChunk != null) {
+            ChunkPos chunkPos = result.chunkPos();
+            if (this.lucis$chunkSource.getChunkForLighting(chunkPos.x, chunkPos.z) != expectedChunk) {
+                LucisBenchmarkSupport.count("lucis.runtime.commit.staleChunk");
+                return;
+            }
+        }
         long startedAt = LucisBenchmarkSupport.start();
         for (LucisSectionData section : result.sections()) {
             super.queueSectionData(section.layer(), section.sectionPos(), section.dataLayer());
