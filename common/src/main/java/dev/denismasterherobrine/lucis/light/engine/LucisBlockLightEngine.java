@@ -106,6 +106,16 @@ public final class LucisBlockLightEngine {
     }
 
     public void applyRuntimeChangesFast(RegionLightData data, List<RuntimeLightChange> changes) {
+        for (RuntimeLightChange change : changes) {
+            if ((change.newEmission() & 0xF) < (change.oldEmission() & 0xF)
+                    || (change.newOpacity() & 0xF) != (change.oldOpacity() & 0xF)) {
+                applyRuntimeChanges(data, changes);
+                return;
+            }
+        }
+
+        IntBucketQueue queue = queues.get().lightQueue;
+        queue.clear();
         RegionBounds bounds = data.bounds;
         int minBlockX = bounds.minBlockX();
         int minBlockZ = bounds.minBlockZ();
@@ -122,14 +132,18 @@ public final class LucisBlockLightEngine {
             }
             int index = data.localIndex(localX, localY, localZ);
             int emission = change.newEmission() & 0xF;
+            int oldLight = data.blockLight[index] & 0xF;
+            if (emission <= oldLight) {
+                continue;
+            }
             data.blockLight[index] = (byte) emission;
             data.markDirtyBlockLocal(localX, localY, localZ);
-            if (emission <= 1) {
-                clearImmediateNeighbors(data, index);
-            } else {
-                lightImmediateNeighbors(data, index, emission - 1);
+            if (emission > 1) {
+                queue.enqueue(emission, index);
             }
         }
+
+        processAdds(data, queue);
     }
 
     private void clearImmediateNeighbors(RegionLightData data, int index) {
