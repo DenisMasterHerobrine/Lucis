@@ -18,12 +18,20 @@ public final class LucisRegionExtractor {
     }
 
     public RegionLightData extract(LightChunkGetter getter, RegionBounds bounds) {
+        return extract(getter, bounds, null);
+    }
+
+    public RegionLightData extract(LightChunkGetter getter, RegionBounds bounds, LightChunk coreChunk) {
         RegionLightData data = new RegionLightData(bounds);
-        populate(getter, data);
+        populate(getter, data, coreChunk);
         return data;
     }
 
     public void populate(LightChunkGetter getter, RegionLightData data) {
+        populate(getter, data, null);
+    }
+
+    public void populate(LightChunkGetter getter, RegionLightData data, LightChunk coreChunk) {
         data.resetForReuse();
         BlockGetter level = getter.getLevel();
         BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos();
@@ -59,7 +67,11 @@ public final class LucisRegionExtractor {
                     int chunkIndex = (chunkX - minChunkX) + (chunkZ - minChunkZ) * chunkWidth;
                     LightChunk chunk = chunks[chunkIndex];
                     if (!chunkResolved[chunkIndex]) {
-                        chunk = getter.getChunkForLighting(chunkX, chunkZ);
+                        chunk = coreChunk != null
+                                && chunkX == bounds.originChunkX()
+                                && chunkZ == bounds.originChunkZ()
+                                ? coreChunk
+                                : getter.getChunkForLighting(chunkX, chunkZ);
                         chunks[chunkIndex] = chunk;
                         chunkResolved[chunkIndex] = true;
                     }

@@ -3,6 +3,7 @@ package dev.denismasterherobrine.lucis.light.region;
 public final class RuntimeRegionState {
     private final RegionLightData data;
     private volatile boolean initialized;
+    private volatile Object sourceIdentity;
     private volatile long lastAccessNanos;
 
     public RuntimeRegionState(RegionLightData data) {
@@ -18,7 +19,12 @@ public final class RuntimeRegionState {
         return initialized;
     }
 
-    public void markInitialized() {
+    public boolean initializedFor(Object sourceIdentity) {
+        return initialized && this.sourceIdentity == sourceIdentity;
+    }
+
+    public void markInitialized(Object sourceIdentity) {
+        this.sourceIdentity = sourceIdentity;
         initialized = true;
         touch();
     }

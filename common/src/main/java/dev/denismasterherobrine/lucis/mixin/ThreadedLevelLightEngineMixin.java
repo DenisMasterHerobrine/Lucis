@@ -13,6 +13,7 @@ import net.minecraft.server.level.ThreadedLevelLightEngine;
 import net.minecraft.util.thread.ConsecutiveExecutor;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.lighting.LevelLightEngine;
@@ -95,7 +96,7 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
                 .thenCompose(result -> {
                     LucisBenchmarkSupport.recordSince("lucis.light_chunk.compute", startedAt);
                     long publishStartedAt = LucisBenchmarkSupport.start();
-                    CompletableFuture<Void> published = lucis$publish(result);
+                    CompletableFuture<Void> published = lucis$publish(result, null);
                     ((ThreadedLevelLightEngine) (Object) this).tryScheduleUpdate();
                     return published.thenApply(ignored -> {
                         LucisBenchmarkSupport.recordSince("lucis.light_chunk.publish_wait", publishStartedAt);
@@ -155,8 +156,9 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
     }
 
     @Override
-    public CompletableFuture<Void> lucis$publish(LucisRelightResult result) {
-        return lucis$addPostTask(result.chunkPos().x(), result.chunkPos().z(), () -> lucis$publishDirect(result));
+    public CompletableFuture<Void> lucis$publish(LucisRelightResult result, LightChunk expectedChunk) {
+        return lucis$addPostTask(result.chunkPos().x(), result.chunkPos().z(),
+                () -> lucis$publishDirect(result, expectedChunk));
     }
 
     @Override
@@ -244,7 +246,14 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
     }
 
     @Unique
-    private void lucis$publishDirect(LucisRelightResult result) {
+    private void lucis$publishDirect(LucisRelightResult result, LightChunk expectedChunk) {
+        if (expectedChunk != null) {
+            ChunkPos chunkPos = result.chunkPos();
+            if (this.lucis$chunkSource.getChunkForLighting(chunkPos.x(), chunkPos.z()) != expectedChunk) {
+                LucisBenchmarkSupport.count("lucis.runtime.commit.staleChunk");
+                return;
+            }
+        }
         long startedAt = LucisBenchmarkSupport.start();
         for (LucisSectionData section : result.sections()) {
             super.queueSectionData(section.layer(), section.sectionPos(), section.dataLayer());
