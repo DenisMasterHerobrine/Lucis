@@ -72,13 +72,13 @@ loom {
             runDir = '../run-fabric-server'
         }
         benchmarkLucisServer {
-            configureBenchmarkRun(delegate, 'run-benchmark-26.1.2-fabric-lucis', 'lucis', true)
+            configureBenchmarkRun(delegate, 'run-benchmark-26.2-fabric-lucis', 'lucis', true)
         }
         benchmarkVanillaServer {
-            configureBenchmarkRun(delegate, 'run-benchmark-26.1.2-fabric-vanilla', 'vanilla', false)
+            configureBenchmarkRun(delegate, 'run-benchmark-26.2-fabric-vanilla', 'vanilla', false)
         }
         benchmarkScalableLuxServer {
-            configureBenchmarkRun(delegate, 'run-benchmark-26.1.2-fabric-scalablelux', 'scalablelux', false, 'scalablelux')
+            configureBenchmarkRun(delegate, 'run-benchmark-26.2-fabric-scalablelux', 'scalablelux', false, 'scalablelux')
         }
     }
 }
