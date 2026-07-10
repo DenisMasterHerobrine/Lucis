@@ -47,7 +47,7 @@ public final class LucisBenchmarkSupport {
             return new Snapshot(Map.of(), Map.of());
         }
         Map<String, Metric> metrics = new TreeMap<>();
-        TIME_NANOS.forEach((key, nanos) -> metrics.put(key, new Metric(nanos.sum(), COUNTS.getOrDefault(key, new LongAdder()).sum())));
+        TIME_NANOS.forEach((key, nanos) -> metrics.put(key, new Metric(nanos.sum(), counterValue(COUNTS, key))));
         Map<String, Long> counters = new TreeMap<>();
         COUNTERS.forEach((key, counter) -> counters.put(key, counter.sum()));
         return new Snapshot(metrics, counters);
@@ -103,7 +103,7 @@ public final class LucisBenchmarkSupport {
                 .forEach(entry -> {
                     String key = entry.getKey();
                     long nanos = entry.getValue().sum();
-                    long count = COUNTS.getOrDefault(key, new LongAdder()).sum();
+                    long count = counterValue(COUNTS, key);
                     double ms = nanos / 1_000_000.0;
                     Lucis.LOGGER.info("LUCIS_BENCH_METRIC mode={} name={} metric={} total_ms={} calls={}",
                             activeMode(),
@@ -120,6 +120,11 @@ public final class LucisBenchmarkSupport {
                         name,
                         entry.getKey(),
                         entry.getValue().sum()));
+    }
+
+    private static long counterValue(Map<String, LongAdder> counters, String key) {
+        LongAdder counter = counters.get(key);
+        return counter == null ? 0L : counter.sum();
     }
 
     private static String activeMode() {

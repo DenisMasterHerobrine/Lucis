@@ -1,8 +1,15 @@
 package dev.denismasterherobrine.lucis.light.region;
 
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class OwnedRegionCache {
+    private static final Comparator<TrimCandidate> NEWEST_FIRST =
+            Comparator.comparingLong(TrimCandidate::lastAccessNanos).reversed();
+
     private final ConcurrentHashMap<Long, RuntimeRegionState> cache = new ConcurrentHashMap<>();
 
     public RuntimeRegionState getOrCreate(RegionBounds bounds) {
@@ -29,15 +36,57 @@ public final class OwnedRegionCache {
     }
 
     public void trimToSize(int maxEntries) {
-        if (maxEntries <= 0 || cache.size() <= maxEntries) {
+        int currentSize = cache.size();
+        if (maxEntries <= 0 || currentSize <= maxEntries) {
             return;
         }
 
-        cache.entrySet().stream()
-                .map(entry -> new TrimCandidate(entry.getKey(), entry.getValue(), entry.getValue().lastAccessNanos()))
-                .sorted((left, right) -> Long.compare(left.lastAccessNanos(), right.lastAccessNanos()))
-                .limit(Math.max(0, cache.size() - maxEntries))
-                .forEach(candidate -> cache.remove(candidate.regionKey(), candidate.state()));
+        int removeCount = currentSize - maxEntries;
+        if (removeCount == 1) {
+            removeOldestEntry();
+            return;
+        }
+
+        PriorityQueue<TrimCandidate> oldestEntries = new PriorityQueue<>(removeCount, NEWEST_FIRST);
+        Iterator<Map.Entry<Long, RuntimeRegionState>> entries = cache.entrySet().iterator();
+        while (entries.hasNext()) {
+            Map.Entry<Long, RuntimeRegionState> entry = entries.next();
+            RuntimeRegionState state = entry.getValue();
+            long lastAccessNanos = state.lastAccessNanos();
+            if (oldestEntries.size() < removeCount) {
+                oldestEntries.add(new TrimCandidate(entry.getKey(), state, lastAccessNanos));
+                continue;
+            }
+            TrimCandidate newestOldEntry = oldestEntries.peek();
+            if (newestOldEntry != null && lastAccessNanos < newestOldEntry.lastAccessNanos()) {
+                oldestEntries.poll();
+                oldestEntries.add(new TrimCandidate(entry.getKey(), state, lastAccessNanos));
+            }
+        }
+        while (!oldestEntries.isEmpty()) {
+            TrimCandidate candidate = oldestEntries.poll();
+            cache.remove(candidate.regionKey(), candidate.state());
+        }
+    }
+
+    private void removeOldestEntry() {
+        long oldestKey = 0L;
+        long oldestAccessNanos = Long.MAX_VALUE;
+        RuntimeRegionState oldestState = null;
+        Iterator<Map.Entry<Long, RuntimeRegionState>> entries = cache.entrySet().iterator();
+        while (entries.hasNext()) {
+            Map.Entry<Long, RuntimeRegionState> entry = entries.next();
+            RuntimeRegionState state = entry.getValue();
+            long lastAccessNanos = state.lastAccessNanos();
+            if (lastAccessNanos < oldestAccessNanos) {
+                oldestKey = entry.getKey();
+                oldestState = state;
+                oldestAccessNanos = lastAccessNanos;
+            }
+        }
+        if (oldestState != null) {
+            cache.remove(oldestKey, oldestState);
+        }
     }
 
     public int size() {
