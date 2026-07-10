@@ -10,6 +10,7 @@ import dev.denismasterherobrine.lucis.light.region.RuntimeRegionState;
 import dev.denismasterherobrine.lucis.test.LucisBenchmarkSupport;
 import net.minecraft.server.level.ThreadedLevelLightEngine;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 
 import java.util.ArrayList;
@@ -132,6 +133,16 @@ public final class LucisRuntimeManager implements AutoCloseable {
             }
             return;
         }
+
+        ChunkPos anchor = new ChunkPos(ChunkPos.getX(regionKey), ChunkPos.getZ(regionKey));
+        LightChunk coreChunk = getter.getChunkForLighting(anchor.x(), anchor.z());
+        if (coreChunk == null) {
+            LucisBenchmarkSupport.count("lucis.runtime.requeued.missingChunk");
+            if (changes != null && !changes.isEmpty()) {
+                updateQueue.enqueueAll(changes);
+            }
+            return;
+        }
         if (!scheduledRegions.add(regionKey)) {
             LucisBenchmarkSupport.count("lucis.runtime.requeued.alreadyScheduled");
             if (changes != null && !changes.isEmpty()) {
@@ -150,7 +161,6 @@ public final class LucisRuntimeManager implements AutoCloseable {
             return;
         }
 
-        ChunkPos anchor = new ChunkPos(ChunkPos.getX(regionKey), ChunkPos.getZ(regionKey));
         RegionBounds bounds = RegionBounds.around(anchor, getter.getLevel(), regionChunks, haloChunks);
         RuntimeRegionState ownedState = regionCache.getOrCreate(bounds);
         ownedState.touch();
@@ -160,7 +170,7 @@ public final class LucisRuntimeManager implements AutoCloseable {
             long jobStartedAt = LucisBenchmarkSupport.start();
             List<LucisRelightResult> results;
             try {
-                results = relighter.relightRuntimeRegion(getter, ownedState,
+                results = relighter.relightRuntimeRegion(getter, ownedState, coreChunk,
                         changes == null ? List.of() : changes, enableSky, enableBlock);
             } finally {
                 LucisBenchmarkSupport.recordSince("lucis.stage.runtime.job.runtime", jobStartedAt);
@@ -177,7 +187,7 @@ public final class LucisRuntimeManager implements AutoCloseable {
                 pendingPublishes.incrementAndGet();
                 CompletableFuture<Void> published;
                 try {
-                    published = publisher.lucis$publish(result);
+                    published = publisher.lucis$publish(result, coreChunk);
                 } catch (Throwable throwable) {
                     pendingPublishes.decrementAndGet();
                     throw throwable;
