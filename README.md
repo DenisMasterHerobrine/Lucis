@@ -4,11 +4,11 @@ Lucis is a lightweight server-side light engine. It replaces expensive parts of 
 
 Originally started as a research project to learn how Minecraft's light engine works, ended rewriting lighting because the original one was too slow for me and decided to have some fun attempting to do something with it!
 
-## What Lucis does? Why it exists?
-
-**Why?** Mostly for fun and researching. I wanted to spawn huge (like really huge!) structures into the world, but got stuck that vanilla light engine just... you know haven't expected THAT much amount of blocks to calculate light and just hangs itself, so I've tried to solve that.
+I wanted to spawn huge (like really huge!) structures into the world, but got stuck that vanilla light engine just... you know haven't expected THAT much amount of blocks to calculate light and just hangs itself, so I've tried to solve that.
 
 Yes, Starlight and ScalableLux exists, you can use them too. However, I wanted to research and look inside myself instead of using existing solutions. So, here is **Lucis**, that speeds up lighting up to ~8-12x than vanilla and ~1.5x faster than ScalableLux/Starlight!
+
+## What Lucis does?
 
 Lucis optimizes chunk lighting during world generation on a chunk preparation stage and runtime block light and skylight updates after block changes.
 
@@ -16,7 +16,9 @@ Instead of relying only on vanilla per-update lighting behavior, Lucis groups li
 
 The goal is very simple. Reduce lighting cost during heavy block updates, chunk loading and skylight changes.
 
-## How it even works? Is this another fork of Starlight?
+## How it even works?
+
+_Is this another fork of Starlight?_
 
 No, this is an another approach to optimize light calculations where possible. Let me attempt to describe that.
 
