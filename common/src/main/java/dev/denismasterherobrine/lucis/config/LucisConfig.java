@@ -10,22 +10,22 @@ import java.nio.file.Path;
 import java.util.Properties;
 
 public final class LucisConfig {
-    public static volatile boolean enabled = true;
-    public static volatile int regionChunks = 1;
-    public static volatile int haloChunks = 0;
-    public static volatile int maxBatchChunks = 64;
-    public static volatile int maxCachedRegions = 128;
-    public static volatile boolean enableWorldgen = true;
-    public static volatile boolean enableRuntime = true;
-    public static volatile boolean enableSky = true;
-    public static volatile boolean enableBlock = true;
-    public static volatile boolean verboseLogging = false;
-    public static volatile boolean debug = false;
+    public static boolean enabled = true;
+    public static int regionChunks = 1;
+    public static int haloChunks = 0;
+    public static int maxBatchChunks = 64;
+    public static int maxCachedRegions = 128;
+    public static boolean enableWorldgen = true;
+    public static boolean enableRuntime = true;
+    public static boolean enableSky = true;
+    public static boolean enableBlock = true;
+    public static boolean verboseLogging = false;
+    public static boolean debug = false;
 
     private LucisConfig() {
     }
 
-    public static synchronized void loadProperties(Path path) {
+    public static void loadProperties(Path path) {
         Properties properties = defaults();
         if (Files.isRegularFile(path)) {
             try (InputStream input = Files.newInputStream(path)) {
@@ -59,7 +59,7 @@ public final class LucisConfig {
         );
     }
 
-    public static synchronized void apply(boolean enabledValue, int regionChunksValue, int haloChunksValue,
+    public static void apply(boolean enabledValue, int regionChunksValue, int haloChunksValue,
                                           int maxBatchChunksValue, int maxCachedRegionsValue,
                                           boolean enableWorldgenValue, boolean enableRuntimeValue,
                                           boolean enableSkyValue, boolean enableBlockValue,
@@ -78,7 +78,7 @@ public final class LucisConfig {
         applySystemOverrides();
     }
 
-    public static synchronized void applySystemOverrides() {
+    public static void applySystemOverrides() {
         enabled = overrideBoolean("lucis.enabled", enabled);
         enableWorldgen = overrideBoolean("lucis.enableWorldgen", enableWorldgen);
         enableRuntime = overrideBoolean("lucis.enableRuntime", enableRuntime);

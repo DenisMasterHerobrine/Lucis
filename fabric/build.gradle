@@ -22,6 +22,15 @@ def configureBenchmarkRun = { runConfig, String runDirectory, String mode, boole
             'lucis.benchmark.output'      : benchmarkProperty('benchmarkOutput', 'build/reports/lucis-light-benchmark.jsonl'),
             'lucis.benchmark.radiusChunks': benchmarkProperty('benchmarkRadiusChunks', '3'),
             'lucis.benchmark.chunkSpan'   : benchmarkProperty('benchmarkChunkSpan', '0'),
+            'lucis.benchmark.structureSize': benchmarkProperty('benchmarkStructureSize', '16'),
+            'lucis.benchmark.structureWidth': benchmarkProperty('benchmarkStructureWidth', benchmarkProperty('benchmarkStructureSize', '16')),
+            'lucis.benchmark.structureHeight': benchmarkProperty('benchmarkStructureHeight', benchmarkProperty('benchmarkStructureSize', '16')),
+            'lucis.benchmark.structureDepth': benchmarkProperty('benchmarkStructureDepth', benchmarkProperty('benchmarkStructureSize', '16')),
+            'lucis.benchmark.maxApplyBlocks': benchmarkProperty('benchmarkMaxApplyBlocks', '0'),
+            'lucis.benchmark.skipPreparation': benchmarkProperty('benchmarkSkipPreparation', 'false'),
+            'lucis.benchmark.lightOnly': benchmarkProperty('benchmarkLightOnly', 'false'),
+            'lucis.benchmark.trackRegionAnchorsOnly': benchmarkProperty('benchmarkTrackRegionAnchorsOnly', 'false'),
+            'lucis.benchmark.prepareMaxTicks': benchmarkProperty('benchmarkPrepareMaxTicks', '0'),
             'lucis.benchmark.originX'     : benchmarkProperty('benchmarkOriginX', '0'),
             'lucis.benchmark.originZ'     : benchmarkProperty('benchmarkOriginZ', '0'),
             'lucis.benchmark.y'           : benchmarkProperty('benchmarkY', '80'),
@@ -35,7 +44,10 @@ def configureBenchmarkRun = { runConfig, String runDirectory, String mode, boole
             'lucis.maxBatchChunks'        : benchmarkProperty('lucisMaxBatchChunks', '64'),
             'lucis.maxCachedRegions'      : benchmarkProperty('lucisMaxCachedRegions', '128'),
             'lucis.worldgenWorkers'       : benchmarkProperty('lucisWorldgenWorkers', '0'),
-            'lucis.runtimeWorkers'        : benchmarkProperty('lucisRuntimeWorkers', '0')
+            'lucis.runtimeWorkers'        : benchmarkProperty('lucisRuntimeWorkers', '0'),
+            'lucis.runtimeRegionChunks'   : benchmarkProperty('lucisRuntimeRegionChunks', '1'),
+            'lucis.runtime.fullRelightChangeThreshold': benchmarkProperty('lucisRuntimeFullRelightChangeThreshold', '2048'),
+            'lucis.runtime.fullRelightCoalesceNanos': benchmarkProperty('lucisRuntimeFullRelightCoalesceNanos', '5000000000')
     ]
     systemProperties.each { key, value -> runConfig.vmArg("-D${key}=${value}") }
     runConfig.vmArg('-Xmx2G')
