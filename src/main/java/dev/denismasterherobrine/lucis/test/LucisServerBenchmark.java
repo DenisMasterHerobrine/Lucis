@@ -77,6 +77,7 @@ public final class LucisServerBenchmark {
 
     private static int applyPattern(ServerLevel level, BenchmarkConfig config, BlockState state) {
         return switch (config.workload()) {
+            case "structure_cube" -> applyStructureCube(level, config, state, FLAGS);
             case "block_toggle_sparse" -> applySparsePattern(level, config, state, FLAGS);
             case "block_toggle_border" -> applyBorderPattern(level, config, state, FLAGS);
             case "block_toggle_column" -> applyColumnPattern(level, config, state, FLAGS);
@@ -90,6 +91,7 @@ public final class LucisServerBenchmark {
 
     private static int applyPreparationPattern(ServerLevel level, BenchmarkConfig config) {
         return switch (config.workload()) {
+            case "structure_cube" -> applyStructureCube(level, config, Blocks.AIR.defaultBlockState(), FLAGS);
             case "sky_hole" -> applySkyHolePreparationPattern(level, config, Blocks.STONE.defaultBlockState(), FLAGS);
             default -> applyPattern(level, config, Blocks.STONE.defaultBlockState());
         };
@@ -128,6 +130,9 @@ public final class LucisServerBenchmark {
     }
 
     private static BlockState stateForPass(BenchmarkConfig config, int pass) {
+        if ("structure_cube".equals(config.workload())) {
+            return (pass & 1) == 0 ? Blocks.STONE.defaultBlockState() : Blocks.AIR.defaultBlockState();
+        }
         if (isSkyWorkload(config.workload())) {
             return (pass & 1) == 0 ? Blocks.AIR.defaultBlockState() : Blocks.STONE.defaultBlockState();
         }
@@ -264,6 +269,45 @@ public final class LucisServerBenchmark {
         return changes;
     }
 
+    private static int applyStructureCube(ServerLevel level, BenchmarkConfig config, BlockState state, int flags) {
+        int changes = 0;
+        int width = config.structureWidth();
+        int height = config.structureHeight();
+        int depth = config.structureDepth();
+        long maxAttempts = config.maxApplyBlocks() <= 0L
+                ? config.plannedChanges()
+                : Math.min(config.plannedChanges(), config.maxApplyBlocks());
+        long attempts = 0L;
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        LucisServices.controller().beginRuntimeBulkWrite();
+        LucisServices.controller().recordRuntimeBulkBounds(level,
+                config.originX(), config.originZ(), config.originX() + width, config.originZ() + depth,
+                config.plannedChanges());
+        if (config.lightOnly()) {
+            LucisServices.controller().endRuntimeBulkWrite();
+            return (int) Math.min(Integer.MAX_VALUE, config.plannedChanges());
+        }
+        try {
+            outer:
+            for (int y = 0; y < height; y++) {
+                for (int z = 0; z < depth; z++) {
+                    for (int x = 0; x < width; x++) {
+                        if (attempts++ >= maxAttempts) {
+                            break outer;
+                        }
+                        pos.set(config.originX() + x, config.y() + y, config.originZ() + z);
+                        if (level.setBlock(pos, state, flags)) {
+                            changes++;
+                        }
+                    }
+                }
+            }
+        } finally {
+            LucisServices.controller().endRuntimeBulkWrite();
+        }
+        return changes;
+    }
+
     private static void writeResult(MinecraftServer server, BenchmarkConfig config, BenchmarkStats stats) throws IOException {
         Path output = Path.of(config.output());
         if (!output.isAbsolute()) {
@@ -283,11 +327,24 @@ public final class LucisServerBenchmark {
                 + "\"haloChunks\":" + LucisConfig.haloChunks + ","
                 + "\"radiusChunks\":" + config.radiusChunks() + ","
                 + "\"chunkSpan\":" + config.chunkSpan() + ","
+                + "\"structureSize\":" + config.structureSize() + ","
+                + "\"structureWidth\":" + config.structureWidth() + ","
+                + "\"structureHeight\":" + config.structureHeight() + ","
+                + "\"structureDepth\":" + config.structureDepth() + ","
+                + "\"plannedChanges\":" + config.plannedChanges() + ","
+                + "\"maxApplyBlocks\":" + config.maxApplyBlocks() + ","
+                + "\"skipPreparation\":" + config.skipPreparation() + ","
+                + "\"lightOnly\":" + config.lightOnly() + ","
+                + "\"trackRegionAnchorsOnly\":" + config.trackRegionAnchorsOnly() + ","
+                + "\"prepareMaxTicks\":" + config.prepareMaxTicks() + ","
+                + "\"capped\":" + config.capped() + ","
                 + "\"passes\":" + config.passes() + ","
                 + "\"warmupPasses\":" + config.warmupPasses() + ","
                 + "\"changes\":" + stats.measuredChanges() + ","
                 + "\"nanos\":" + stats.measuredNanos() + ","
                 + "\"millis\":" + stats.measuredNanos() / 1_000_000.0D + ","
+                + "\"projectedMillis\":" + stats.projectedMillis(config) + ","
+                + "\"status\":\"" + escape(stats.status()) + "\","
                 + "\"nsPerChange\":" + (stats.measuredChanges() == 0 ? 0.0D : (double) stats.measuredNanos() / stats.measuredChanges())
                 + "}";
         Files.writeString(output, json + System.lineSeparator(), StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
@@ -357,7 +414,22 @@ public final class LucisServerBenchmark {
             this.maxChunkX = maxX >> 4;
             this.minChunkZ = minZ >> 4;
             this.maxChunkZ = maxZ >> 4;
-            int chunkCount = (this.maxChunkX - this.minChunkX + 1) * (this.maxChunkZ - this.minChunkZ + 1);
+            int runtimeRegionChunks = runtimeRegionChunks();
+            int effectiveMinChunkX = this.config.trackRegionAnchorsOnly()
+                    ? Math.floorDiv(this.minChunkX, runtimeRegionChunks) * runtimeRegionChunks
+                    : this.minChunkX;
+            int effectiveMaxChunkX = this.config.trackRegionAnchorsOnly()
+                    ? Math.floorDiv(this.maxChunkX, runtimeRegionChunks) * runtimeRegionChunks
+                    : this.maxChunkX;
+            int effectiveMinChunkZ = this.config.trackRegionAnchorsOnly()
+                    ? Math.floorDiv(this.minChunkZ, runtimeRegionChunks) * runtimeRegionChunks
+                    : this.minChunkZ;
+            int effectiveMaxChunkZ = this.config.trackRegionAnchorsOnly()
+                    ? Math.floorDiv(this.maxChunkZ, runtimeRegionChunks) * runtimeRegionChunks
+                    : this.maxChunkZ;
+            int stepChunks = this.config.trackRegionAnchorsOnly() ? runtimeRegionChunks : 1;
+            int chunkCount = ((effectiveMaxChunkX - effectiveMinChunkX) / stepChunks + 1)
+                    * ((effectiveMaxChunkZ - effectiveMinChunkZ) / stepChunks + 1);
             this.trackedChunks = new ChunkPos[chunkCount];
             this.preparedChunkLoaded = new boolean[chunkCount];
             this.waitFutures = new CompletableFuture<?>[chunkCount];
@@ -365,8 +437,8 @@ public final class LucisServerBenchmark {
             this.prepareStartNanos = System.nanoTime();
             LucisBenchmarkSupport.reset();
             int index = 0;
-            for (int chunkZ = this.minChunkZ; chunkZ <= this.maxChunkZ; chunkZ++) {
-                for (int chunkX = this.minChunkX; chunkX <= this.maxChunkX; chunkX++) {
+            for (int chunkZ = effectiveMinChunkZ; chunkZ <= effectiveMaxChunkZ; chunkZ += stepChunks) {
+                for (int chunkX = effectiveMinChunkX; chunkX <= effectiveMaxChunkX; chunkX += stepChunks) {
                     this.trackedChunks[index++] = new ChunkPos(chunkX, chunkZ);
                 }
             }
@@ -430,6 +502,11 @@ public final class LucisServerBenchmark {
                                 this.trackedChunks.length - this.remainingPrepareChunks, this.trackedChunks.length,
                                 this.remainingPrepareChunks, chunkPos.x, chunkPos.z);
                     }
+                    if (this.config.prepareMaxTicks() > 0 && this.waitTicks > this.config.prepareMaxTicks()) {
+                        LOGGER.error("Lucis light benchmark prepare timed out: mode={} workload={} pending={} ticks={}",
+                                this.config.mode(), this.config.workload(), this.remainingPrepareChunks, this.waitTicks);
+                        this.writeAndFinish("prepare_timeout", 0, System.nanoTime() - this.prepareStartNanos);
+                    }
                     return;
                 }
                 this.prepareChunksLoaded = true;
@@ -442,7 +519,11 @@ public final class LucisServerBenchmark {
                 LucisBenchmarkSupport.reset();
                 this.waitTicks = 0;
             }
-            this.prepareChanges = applyPreparationPattern(this.level, this.config);
+            if (this.config.skipPreparation()) {
+                this.prepareChanges = 0;
+            } else {
+                this.prepareChanges = applyPreparationPattern(this.level, this.config);
+            }
             this.beginLightWait();
             this.phase = Phase.WAIT_PREPARE_LIGHT;
         }
@@ -484,11 +565,9 @@ public final class LucisServerBenchmark {
 
         private void beginLightWait() {
             this.level.getChunkSource().getLightEngine().tryScheduleUpdate();
-            int index = 0;
-            for (int chunkZ = this.minChunkZ; chunkZ <= this.maxChunkZ; chunkZ++) {
-                for (int chunkX = this.minChunkX; chunkX <= this.maxChunkX; chunkX++) {
-                    this.waitFutures[index++] = this.level.getChunkSource().getLightEngine().waitForPendingTasks(chunkX, chunkZ);
-                }
+            for (int index = 0; index < this.trackedChunks.length; index++) {
+                ChunkPos chunkPos = this.trackedChunks[index];
+                this.waitFutures[index] = this.level.getChunkSource().getLightEngine().waitForPendingTasks(chunkPos.x, chunkPos.z);
             }
             this.waitTicks = 0;
             this.waitFailure = null;
@@ -543,12 +622,13 @@ public final class LucisServerBenchmark {
         private void startPass() {
             if (this.pass >= this.totalPasses) {
                 try {
-                    BenchmarkStats stats = new BenchmarkStats(this.measuredChanges, this.measuredNanos);
+                    BenchmarkStats stats = new BenchmarkStats(this.measuredChanges, this.measuredNanos, "ok");
                     writeResult(this.server, this.config, stats);
                     LOGGER.info("Lucis light benchmark complete: mode={} changes={} measuredMs={} nsPerChange={}",
                             this.config.mode(), stats.measuredChanges(), stats.measuredNanos() / 1_000_000L,
                             stats.measuredChanges() == 0 ? 0L : stats.measuredNanos() / stats.measuredChanges());
-                    LucisBenchmarkSupport.logResult("server_light_" + this.config.workload(), stats.measuredChanges(), 0L, stats.measuredNanos());
+                    LucisBenchmarkSupport.logResult("server_light_" + this.config.workload(),
+                            (int) Math.min(Integer.MAX_VALUE, stats.measuredChanges()), 0L, stats.measuredNanos());
                 } catch (IOException exception) {
                     LOGGER.error("Failed to write Lucis light benchmark result", exception);
                 }
@@ -600,6 +680,15 @@ public final class LucisServerBenchmark {
             this.server.halt(false);
         }
 
+        private void writeAndFinish(String status, long changes, long nanos) {
+            try {
+                writeResult(this.server, this.config, new BenchmarkStats(changes, nanos, status));
+            } catch (IOException exception) {
+                LOGGER.error("Failed to write Lucis light benchmark result", exception);
+            }
+            this.finish();
+        }
+
         private void releaseTickets() {
             for (ChunkPos chunkPos : this.trackedChunks) {
                 this.level.getChunkSource().removeRegionTicket(BENCHMARK_TICKET_TYPE, chunkPos, FULL_CHUNK_TICKET_RADIUS, chunkPos);
@@ -617,8 +706,12 @@ public final class LucisServerBenchmark {
     }
 
     private record BenchmarkConfig(String mode, String workload, String expectedMod, String output, int radiusChunks, int chunkSpan,
+                                   int structureSize, int structureWidth, int structureHeight, int structureDepth,
+                                   long maxApplyBlocks, boolean skipPreparation, boolean lightOnly,
+                                   boolean trackRegionAnchorsOnly, int prepareMaxTicks,
                                    int passes, int warmupPasses, int settleTicks, int originX, int originZ, int y, long maxWaitNanos) {
         private static BenchmarkConfig fromProperties() {
+            int structureSize = intProperty("lucis.benchmark.structureSize", 16);
             return new BenchmarkConfig(
                     stringProperty("lucis.benchmark.mode", "lucis"),
                     stringProperty("lucis.benchmark.workload", "block_toggle_dense"),
@@ -626,6 +719,15 @@ public final class LucisServerBenchmark {
                     stringProperty("lucis.benchmark.output", "lucis-light-benchmark.jsonl"),
                     intProperty("lucis.benchmark.radiusChunks", 3),
                     intProperty("lucis.benchmark.chunkSpan", 0),
+                    structureSize,
+                    intProperty("lucis.benchmark.structureWidth", structureSize),
+                    intProperty("lucis.benchmark.structureHeight", structureSize),
+                    intProperty("lucis.benchmark.structureDepth", structureSize),
+                    longProperty("lucis.benchmark.maxApplyBlocks", 0L),
+                    booleanProperty("lucis.benchmark.skipPreparation", false),
+                    booleanProperty("lucis.benchmark.lightOnly", false),
+                    booleanProperty("lucis.benchmark.trackRegionAnchorsOnly", false),
+                    intProperty("lucis.benchmark.prepareMaxTicks", 0),
                     intProperty("lucis.benchmark.passes", 6),
                     intProperty("lucis.benchmark.warmupPasses", 2),
                     intProperty("lucis.benchmark.settleTicks", 20),
@@ -637,7 +739,10 @@ public final class LucisServerBenchmark {
         }
 
         private BenchmarkConfig withOrigin(int originX, int originZ) {
-            return new BenchmarkConfig(mode, workload, expectedMod, output, radiusChunks, chunkSpan, passes, warmupPasses, settleTicks,
+            return new BenchmarkConfig(mode, workload, expectedMod, output, radiusChunks, chunkSpan,
+                    structureSize, structureWidth, structureHeight, structureDepth,
+                    maxApplyBlocks, skipPreparation, lightOnly, trackRegionAnchorsOnly, prepareMaxTicks,
+                    passes, warmupPasses, settleTicks,
                     originX, originZ, y, maxWaitNanos);
         }
 
@@ -646,11 +751,30 @@ public final class LucisServerBenchmark {
         }
 
         private int minOffsetBlocks() {
+            if ("structure_cube".equals(workload)) {
+                return 0;
+            }
             return -(spanChunks() / 2) * 16;
         }
 
         private int maxOffsetBlocksExclusive() {
+            if ("structure_cube".equals(workload)) {
+                return Math.max(1, Math.max(structureWidth, structureDepth));
+            }
             return minOffsetBlocks() + spanChunks() * 16;
+        }
+
+        private long plannedChanges() {
+            if ("structure_cube".equals(workload)) {
+                return (long) Math.max(1, structureWidth)
+                        * Math.max(1, structureHeight)
+                        * Math.max(1, structureDepth);
+            }
+            return 0L;
+        }
+
+        private boolean capped() {
+            return maxApplyBlocks > 0L && plannedChanges() > maxApplyBlocks;
         }
 
         private static String stringProperty(String key, String fallback) {
@@ -681,8 +805,27 @@ public final class LucisServerBenchmark {
                 return fallback;
             }
         }
+
+        private static boolean booleanProperty(String key, boolean fallback) {
+            String value = System.getProperty(key);
+            if (value == null || value.isBlank()) {
+                return fallback;
+            }
+            return Boolean.parseBoolean(value.trim());
+        }
     }
 
-    private record BenchmarkStats(int measuredChanges, long measuredNanos) {
+    private record BenchmarkStats(long measuredChanges, long measuredNanos, String status) {
+        private double projectedMillis(BenchmarkConfig config) {
+            if (measuredChanges <= 0L || config.plannedChanges() <= 0L || !config.capped()) {
+                return 0.0D;
+            }
+            return measuredNanos / 1_000_000.0D * ((double) config.plannedChanges() / measuredChanges);
+        }
+    }
+
+    private static int runtimeRegionChunks() {
+        return Math.max(1, Math.min(Integer.getInteger("lucis.runtimeRegionChunks", 1), 16));
     }
 }
+

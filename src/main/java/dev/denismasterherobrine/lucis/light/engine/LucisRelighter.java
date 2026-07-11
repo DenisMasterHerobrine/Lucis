@@ -7,6 +7,7 @@ import dev.denismasterherobrine.lucis.light.region.RegionLightData;
 import dev.denismasterherobrine.lucis.light.region.RuntimeRegionState;
 import dev.denismasterherobrine.lucis.light.runtime.LucisRelightResult;
 import dev.denismasterherobrine.lucis.light.runtime.BlockChangeRecord;
+import dev.denismasterherobrine.lucis.light.runtime.RuntimeRegionBatch;
 import dev.denismasterherobrine.lucis.light.runtime.RuntimeLightChange;
 import dev.denismasterherobrine.lucis.test.LucisBenchmarkSupport;
 import net.minecraft.core.BlockPos;
@@ -81,7 +82,7 @@ public final class LucisRelighter {
     }
 
     public List<LucisRelightResult> relightRuntimeRegion(LightChunkGetter getter, RuntimeRegionState state, LightChunk coreChunk,
-                                                        List<BlockChangeRecord> changes, boolean enableSky, boolean enableBlock) {
+                                                        RuntimeRegionBatch batch, boolean enableSky, boolean enableBlock) {
         RegionLightData data = state.data();
         if (!state.initializedFor(coreChunk)) {
             LucisBenchmarkSupport.count(state.initialized()
@@ -108,6 +109,31 @@ public final class LucisRelighter {
             data.clearDirty();
             return results;
         }
+
+        if (batch.fullRelight()) {
+            LucisBenchmarkSupport.count("lucis.runtime.region.fullRelight");
+            long startedAt = LucisBenchmarkSupport.start();
+            extractor.populate(getter, data, coreChunk);
+            LucisBenchmarkSupport.recordSince("lucis.stage.runtime.full.extract", startedAt);
+            startedAt = LucisBenchmarkSupport.start();
+            if (enableSky) {
+                skyLightEngine.compute(data);
+            }
+            LucisBenchmarkSupport.recordSince("lucis.stage.runtime.full.sky", startedAt);
+            startedAt = LucisBenchmarkSupport.start();
+            if (enableBlock) {
+                blockLightEngine.compute(data);
+            }
+            LucisBenchmarkSupport.recordSince("lucis.stage.runtime.full.block", startedAt);
+            startedAt = LucisBenchmarkSupport.start();
+            List<LucisRelightResult> results = publishEngine.publishRegion(data);
+            LucisBenchmarkSupport.recordSince("lucis.stage.runtime.full.publish", startedAt);
+            countPublished("lucis.runtime.full", results);
+            data.clearDirty();
+            return results;
+        }
+
+        List<BlockChangeRecord> changes = batch.changes();
 
         if (changes.isEmpty()) {
             return List.of();
