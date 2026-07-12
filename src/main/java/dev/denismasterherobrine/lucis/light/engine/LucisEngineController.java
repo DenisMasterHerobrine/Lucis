@@ -49,10 +49,6 @@ public final class LucisEngineController {
         return enabled() && LucisConfig.enableWorldgen && chunk != null && !isSablePlotChunk(getter, chunk.getPos());
     }
 
-    public boolean shouldHandleLightInitialization(LightChunkGetter getter, ChunkAccess chunk) {
-        return enabled() && chunk != null && !isSablePlotChunk(getter, chunk.getPos());
-    }
-
     public LucisRelightResult relightChunk(LightChunkGetter getter, ChunkAccess chunk, boolean trustEdges) {
         return relighter.relightChunk(getter, chunk, LucisConfig.enableSky, LucisConfig.enableBlock, 1, 1);
     }

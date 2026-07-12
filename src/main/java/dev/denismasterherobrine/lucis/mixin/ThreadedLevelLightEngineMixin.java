@@ -17,7 +17,6 @@ import net.minecraft.util.thread.ProcessorHandle;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
-import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.lighting.LevelLightEngine;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
@@ -130,30 +129,6 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
             }
             lucis$checkBlockStartedAt.remove();
         }
-    }
-
-    @Inject(method = "initializeLight", at = @At("HEAD"), cancellable = true)
-    private void lucis$initializeLight(ChunkAccess chunk, boolean bl, CallbackInfoReturnable<CompletableFuture<ChunkAccess>> cir) {
-        if (!LucisServices.controller().shouldHandleLightInitialization(lucis$chunkSource, chunk)) {
-            return;
-        }
-
-        ChunkPos chunkPos = chunk.getPos();
-        CompletableFuture<Void> initialized = lucis$addPostTask(chunkPos.x, chunkPos.z, () -> {
-            long startedAt = LucisBenchmarkSupport.start();
-            LevelChunkSection[] sections = chunk.getSections();
-            for (int i = 0; i < chunk.getSectionsCount(); i++) {
-                if (!sections[i].hasOnlyAir()) {
-                    int sectionY = this.levelHeightAccessor.getSectionYFromSectionIndex(i);
-                    super.updateSectionStatus(SectionPos.of(chunkPos, sectionY), false);
-                }
-            }
-            super.setLightEnabled(chunkPos, bl);
-            super.retainData(chunkPos, false);
-            LucisBenchmarkSupport.recordSince("lucis.initialize_light.publish", startedAt);
-        });
-        ((ThreadedLevelLightEngine) (Object) this).tryScheduleUpdate();
-        cir.setReturnValue(initialized.thenApply(ignored -> chunk));
     }
 
     @Override
