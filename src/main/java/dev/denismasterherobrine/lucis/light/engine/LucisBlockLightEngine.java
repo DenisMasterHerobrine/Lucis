@@ -9,6 +9,9 @@ import dev.denismasterherobrine.lucis.light.util.IntRingQueue;
 import java.util.List;
 
 public final class LucisBlockLightEngine {
+    private static final int REMOVAL_LEVEL_BITS = 4;
+    private static final int REMOVAL_LEVEL_MASK = (1 << REMOVAL_LEVEL_BITS) - 1;
+
     private final ThreadLocal<Queues> queues = ThreadLocal.withInitial(Queues::new);
 
     public void compute(RegionLightData data) {
@@ -60,11 +63,9 @@ public final class LucisBlockLightEngine {
     public void applyRuntimeChanges(RegionLightData data, List<RuntimeLightChange> changes) {
         Queues queues = this.queues.get();
         IntBucketQueue queue = queues.lightQueue;
-        IntRingQueue removeIndices = queues.removeIndices;
-        IntRingQueue removeLevels = queues.removeLevels;
+        IntRingQueue removals = queues.removals;
         queue.clear();
-        removeIndices.clear();
-        removeLevels.clear();
+        removals.clear();
         RegionBounds bounds = data.bounds;
         int minBlockX = bounds.minBlockX();
         int minBlockZ = bounds.minBlockZ();
@@ -91,17 +92,17 @@ public final class LucisBlockLightEngine {
             data.markDirtyBlockLocal(localX, localY, localZ);
 
             if (oldLight > 0 && (newEmission < oldEmission || newOpacity > oldOpacity)) {
-                enqueueRemoval(removeIndices, removeLevels, index, oldLight);
+                enqueueRemoval(removals, index, oldLight);
             }
 
             if (newEmission > 1) {
                 queue.enqueue(newEmission, index);
             }
 
-            enqueueNeighborAdds(data, index);
+            enqueueNeighborAdds(data, queue, index);
         }
 
-        processRemovals(data, queue, removeIndices, removeLevels);
+        processRemovals(data, queue, removals);
         processAdds(data, queue);
     }
 
@@ -192,28 +193,30 @@ public final class LucisBlockLightEngine {
         }
     }
 
-    private void enqueueRemoval(IntRingQueue removeIndices, IntRingQueue removeLevels, int index, int lightLevel) {
+    private void enqueueRemoval(IntRingQueue removals, int index, int lightLevel) {
         if (lightLevel <= 0) {
             return;
         }
-        removeIndices.enqueue(index);
-        removeLevels.enqueue(lightLevel);
+        assert index >= 0 && index < (1 << (Integer.SIZE - REMOVAL_LEVEL_BITS));
+        assert lightLevel <= REMOVAL_LEVEL_MASK;
+        removals.enqueue((index << REMOVAL_LEVEL_BITS) | lightLevel);
     }
 
-    private void processRemovals(RegionLightData data, IntBucketQueue queue, IntRingQueue removeIndices, IntRingQueue removeLevels) {
-        int index;
-        while ((index = removeIndices.poll()) != Integer.MIN_VALUE) {
-            int removedLevel = removeLevels.poll();
+    private void processRemovals(RegionLightData data, IntBucketQueue queue, IntRingQueue removals) {
+        int packed;
+        while ((packed = removals.poll()) != Integer.MIN_VALUE) {
+            int index = packed >>> REMOVAL_LEVEL_BITS;
+            int removedLevel = packed & REMOVAL_LEVEL_MASK;
             int x = data.localX(index);
             int y = data.localY(index);
             int z = data.localZ(index);
 
-            tryRemoveNeighbor(data, queue, removeIndices, removeLevels, removedLevel, x + 1, y, z, index + data.offsetPosX);
-            tryRemoveNeighbor(data, queue, removeIndices, removeLevels, removedLevel, x - 1, y, z, index + data.offsetNegX);
-            tryRemoveNeighbor(data, queue, removeIndices, removeLevels, removedLevel, x, y, z + 1, index + data.offsetPosZ);
-            tryRemoveNeighbor(data, queue, removeIndices, removeLevels, removedLevel, x, y, z - 1, index + data.offsetNegZ);
-            tryRemoveNeighbor(data, queue, removeIndices, removeLevels, removedLevel, x, y + 1, z, index + data.offsetPosY);
-            tryRemoveNeighbor(data, queue, removeIndices, removeLevels, removedLevel, x, y - 1, z, index + data.offsetNegY);
+            tryRemoveNeighbor(data, queue, removals, removedLevel, x + 1, y, z, index + data.offsetPosX);
+            tryRemoveNeighbor(data, queue, removals, removedLevel, x - 1, y, z, index + data.offsetNegX);
+            tryRemoveNeighbor(data, queue, removals, removedLevel, x, y, z + 1, index + data.offsetPosZ);
+            tryRemoveNeighbor(data, queue, removals, removedLevel, x, y, z - 1, index + data.offsetNegZ);
+            tryRemoveNeighbor(data, queue, removals, removedLevel, x, y + 1, z, index + data.offsetPosY);
+            tryRemoveNeighbor(data, queue, removals, removedLevel, x, y - 1, z, index + data.offsetNegY);
 
             int emission = data.emission[index] & 0xF;
             if (emission > 0) {
@@ -225,7 +228,7 @@ public final class LucisBlockLightEngine {
         }
     }
 
-    private void tryRemoveNeighbor(RegionLightData data, IntBucketQueue queue, IntRingQueue removeIndices, IntRingQueue removeLevels,
+    private void tryRemoveNeighbor(RegionLightData data, IntBucketQueue queue, IntRingQueue removals,
                                    int removedLevel, int nextX, int nextY, int nextZ, int nextIndex) {
         RegionBounds bounds = data.bounds;
         if (nextX < 0 || nextX >= bounds.widthBlocks() || nextZ < 0 || nextZ >= bounds.depthBlocks() || nextY < 0 || nextY >= bounds.heightBlocks()) {
@@ -240,7 +243,7 @@ public final class LucisBlockLightEngine {
         if (neighborLight < removedLevel) {
             data.blockLight[nextIndex] = 0;
             data.markDirtyBlockIndex(nextIndex);
-            enqueueRemoval(removeIndices, removeLevels, nextIndex, neighborLight);
+            enqueueRemoval(removals, nextIndex, neighborLight);
         } else {
             if (neighborLight > 1) {
                 queue.enqueue(neighborLight, nextIndex);
@@ -275,11 +278,10 @@ public final class LucisBlockLightEngine {
         }
     }
 
-    private void enqueueNeighborAdds(RegionLightData data, int index) {
+    private void enqueueNeighborAdds(RegionLightData data, IntBucketQueue queue, int index) {
         int x = data.localX(index);
         int y = data.localY(index);
         int z = data.localZ(index);
-        IntBucketQueue queue = queues.get().lightQueue;
         enqueueIfLit(data, queue, x + 1, y, z, index + data.offsetPosX);
         enqueueIfLit(data, queue, x - 1, y, z, index + data.offsetNegX);
         enqueueIfLit(data, queue, x, y, z + 1, index + data.offsetPosZ);
@@ -312,7 +314,6 @@ public final class LucisBlockLightEngine {
 
     private static final class Queues {
         private final IntBucketQueue lightQueue = new IntBucketQueue(16, 4096);
-        private final IntRingQueue removeIndices = new IntRingQueue(4096);
-        private final IntRingQueue removeLevels = new IntRingQueue(4096);
+        private final IntRingQueue removals = new IntRingQueue(4096);
     }
 }

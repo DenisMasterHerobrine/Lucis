@@ -52,6 +52,8 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
     @Unique
     private final ArrayDeque<LucisQueuedLightTask> lucis$publishBatch = new ArrayDeque<>(1000);
     @Unique
+    private final ArrayDeque<LucisSectionData> lucis$pendingLightNotifications = new ArrayDeque<>(1000);
+    @Unique
     private final AtomicBoolean lucis$publishScheduled = new AtomicBoolean();
     @Unique
     private final ThreadLocal<Long> lucis$checkBlockStartedAt = new ThreadLocal<>();
@@ -173,9 +175,19 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
         for (LucisSectionData section : result.sections()) {
             super.queueSectionData(section.layer(), section.sectionPos(), section.dataLayer());
             super.updateSectionStatus(section.sectionPos(), false);
+            this.lucis$pendingLightNotifications.addLast(section);
         }
         LucisBenchmarkSupport.recordSince("lucis.publish_direct", startedAt);
         LucisBenchmarkSupport.count("lucis.publish_direct.sections", result.sections().size());
+    }
+
+    @Unique
+    private void lucis$notifyPublishedLightSections() {
+        ArrayDeque<LucisSectionData> notifications = this.lucis$pendingLightNotifications;
+        while (!notifications.isEmpty()) {
+            LucisSectionData section = notifications.removeFirst();
+            this.lucis$chunkSource.onLightUpdate(section.layer(), section.sectionPos());
+        }
     }
 
     @Unique
@@ -220,6 +232,7 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
         long startedAt = LucisBenchmarkSupport.start();
         ArrayDeque<LucisQueuedLightTask> batch = this.lucis$publishBatch;
         batch.clear();
+        this.lucis$pendingLightNotifications.clear();
         synchronized (this.lucis$publishLock) {
             int count = Math.min(1000, this.lucis$pendingLightTasks.size());
             for (int index = 0; index < count; index++) {
@@ -233,6 +246,7 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
             }
             if (!batch.isEmpty()) {
                 super.runLightUpdates();
+                lucis$notifyPublishedLightSections();
             }
             for (LucisQueuedLightTask task : batch) {
                 if (task.completion() != null) {
@@ -250,6 +264,7 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
             throw throwable;
         } finally {
             batch.clear();
+            this.lucis$pendingLightNotifications.clear();
             this.lucis$publishScheduled.set(false);
             boolean hasMore;
             synchronized (this.lucis$publishLock) {
