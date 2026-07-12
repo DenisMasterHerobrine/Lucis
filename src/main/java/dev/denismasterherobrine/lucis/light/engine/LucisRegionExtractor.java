@@ -2,6 +2,7 @@ package dev.denismasterherobrine.lucis.light.engine;
 
 import dev.denismasterherobrine.lucis.light.LightMaterial;
 import dev.denismasterherobrine.lucis.light.LightMaterialCache;
+import dev.denismasterherobrine.lucis.light.region.RegionChunkSnapshot;
 import dev.denismasterherobrine.lucis.light.region.RegionBounds;
 import dev.denismasterherobrine.lucis.light.region.RegionLightData;
 import net.minecraft.core.BlockPos;
@@ -87,6 +88,35 @@ public final class LucisRegionExtractor {
                         state = chunk.getBlockState(mutable);
                     }
 
+                    LightMaterial material = materialCache.lookup(level, state, mutable);
+                    int index = rowBase + (worldX - minBlockX);
+                    data.opacity[index] = material.opacity();
+                    data.emission[index] = material.emission();
+                }
+            }
+        }
+    }
+
+    public void populateFromSnapshot(BlockGetter level, RegionLightData data, RegionChunkSnapshot snapshot) {
+        data.resetForReuse();
+        BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos();
+        RegionBounds bounds = data.bounds;
+        int minBlockX = bounds.minBlockX();
+        int minBlockZ = bounds.minBlockZ();
+        int maxBlockX = bounds.maxBlockXExclusive();
+        int maxBlockZ = bounds.maxBlockZExclusive();
+        int width = bounds.widthBlocks();
+        int area = bounds.area();
+
+        for (int worldY = bounds.minBuildY(); worldY < bounds.maxBuildY(); worldY++) {
+            int localY = worldY - bounds.minBuildY();
+            int yBase = localY * area;
+            for (int worldZ = minBlockZ; worldZ < maxBlockZ; worldZ++) {
+                int localZ = worldZ - minBlockZ;
+                int rowBase = yBase + localZ * width;
+                for (int worldX = minBlockX; worldX < maxBlockX; worldX++) {
+                    mutable.set(worldX, worldY, worldZ);
+                    BlockState state = snapshot.getBlockState(worldX, worldY, worldZ);
                     LightMaterial material = materialCache.lookup(level, state, mutable);
                     int index = rowBase + (worldX - minBlockX);
                     data.opacity[index] = material.opacity();

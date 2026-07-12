@@ -3,9 +3,10 @@ package dev.denismasterherobrine.lucis.light.engine;
 import dev.denismasterherobrine.lucis.compat.LucisCompat;
 import dev.denismasterherobrine.lucis.config.LucisConfig;
 import dev.denismasterherobrine.lucis.light.LightMaterialCache;
+import dev.denismasterherobrine.lucis.light.region.RegionBounds;
+import dev.denismasterherobrine.lucis.light.region.RegionChunkSnapshot;
 import dev.denismasterherobrine.lucis.light.runtime.LucisRelightResult;
 import dev.denismasterherobrine.lucis.light.runtime.LucisRuntimeManager;
-import dev.denismasterherobrine.lucis.light.region.RegionBounds;
 import dev.denismasterherobrine.lucis.test.LucisBenchmarkSupport;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
@@ -57,12 +58,18 @@ public final class LucisEngineController {
 
     public CompletableFuture<LucisRelightResult> relightChunkAsync(LightChunkGetter getter, ChunkAccess chunk, boolean trustEdges) {
         long submittedAt = LucisBenchmarkSupport.start();
+        ChunkPos chunkPos = chunk.getPos();
+        RegionBounds bounds = RegionBounds.around(chunkPos, chunk.getHeightAccessorForGeneration(), 1, 1);
+        long snapshotStartedAt = LucisBenchmarkSupport.start();
+        RegionChunkSnapshot snapshot = RegionChunkSnapshot.capture(getter, bounds, chunk);
+        LucisBenchmarkSupport.recordSince("lucis.stage.worldgen.snapshot", snapshotStartedAt);
         return CompletableFuture.supplyAsync(() -> {
             long startedAt = LucisBenchmarkSupport.start();
             if (startedAt != 0L && submittedAt != 0L) {
                 LucisBenchmarkSupport.record("lucis.light_chunk.worker_wait", startedAt - submittedAt);
             }
-            LucisRelightResult result = relightChunk(getter, chunk, trustEdges);
+            LucisRelightResult result = relighter.relightChunkSnapshot(chunkPos, snapshot,
+                    LucisConfig.enableSky, LucisConfig.enableBlock);
             LucisBenchmarkSupport.recordSince("lucis.light_chunk.worker_compute", startedAt);
             return result;
         }, worldgenWorkers);
