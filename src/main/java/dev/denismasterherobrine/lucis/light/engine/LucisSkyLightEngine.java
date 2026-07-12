@@ -89,13 +89,28 @@ public final class LucisSkyLightEngine {
         int depth = data.bounds.depthBlocks();
         columns.reset(width * depth);
         for (RuntimeLightChange change : changes) {
+            if ((change.oldOpacity() & 0xF) == (change.newOpacity() & 0xF)) {
+                continue;
+            }
             int localX = change.worldX() - data.bounds.minBlockX();
             int localY = change.worldY() - data.bounds.minBuildY();
             int localZ = change.worldZ() - data.bounds.minBlockZ();
             if (localX >= 0 && localX < width && localY >= 0 && localY < height && localZ >= 0 && localZ < depth) {
-                columns.add(localX + localZ * width, localY);
+                int index = data.localIndex(localX, localY, localZ);
+                columns.add(localX + localZ * width, localY, requiresFullDepthRepair(data, change, index, localY));
             }
         }
+    }
+
+    private boolean requiresFullDepthRepair(RegionLightData data, RuntimeLightChange change, int index, int localY) {
+        if ((change.oldOpacity() & 0xF) == (change.newOpacity() & 0xF)) {
+            return false;
+        }
+        if ((data.skyLight[index] & 0xF) != 0) {
+            return true;
+        }
+        return localY + 1 >= data.bounds.heightBlocks()
+                || (data.skyLight[index + data.offsetPosY] & 0xF) != 0;
     }
 
     private void recomputeColumnsShallow(RegionLightData data, RuntimeColumns columns) {
@@ -158,7 +173,7 @@ public final class LucisSkyLightEngine {
         maxX = Math.min(width - 1, maxX + RUNTIME_REPAIR_RADIUS_XZ);
         minZ = Math.max(0, minZ - RUNTIME_REPAIR_RADIUS_XZ);
         maxZ = Math.min(depth - 1, maxZ + RUNTIME_REPAIR_RADIUS_XZ);
-        minY = Math.max(0, minY - RUNTIME_REPAIR_RADIUS_Y);
+        minY = columns.fullDepthRepair ? 0 : Math.max(0, minY - RUNTIME_REPAIR_RADIUS_Y);
         maxY = Math.min(height - 1, maxY + RUNTIME_REPAIR_RADIUS_Y);
 
         int cells = (maxX - minX + 1) * (maxZ - minZ + 1) * (maxY - minY + 1);
@@ -179,7 +194,7 @@ public final class LucisSkyLightEngine {
         IntBucketQueue queue = queues.get();
         queue.clear();
         seedRepairColumns(data, queue, minX, maxX, minY, maxY, minZ, maxZ);
-        seedRepairOutside(data, minX, maxX, minY, maxY, minZ, maxZ);
+        seedRepairOutside(data, minX, maxX, minY, maxY, minZ, maxZ, !columns.fullDepthRepair);
         seedRepairCells(data, queue, minX, maxX, minY, maxY, minZ, maxZ);
         spreadRepair(data, queue, minX, maxX, minY, maxY, minZ, maxZ);
         LucisBenchmarkSupport.count("lucis.sky.runtime.repair");
@@ -209,25 +224,28 @@ public final class LucisSkyLightEngine {
         }
     }
 
-    private void seedRepairOutside(RegionLightData data, int minX, int maxX, int minY, int maxY, int minZ, int maxZ) {
+    private void seedRepairOutside(RegionLightData data, int minX, int maxX, int minY, int maxY, int minZ, int maxZ,
+                                   boolean seedLateral) {
         int width = data.bounds.widthBlocks();
         int depth = data.bounds.depthBlocks();
         int height = data.bounds.heightBlocks();
-        for (int y = minY; y <= maxY; y++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                if (minX > 0) {
-                    seedRepairFromNeighbor(data, minX, y, z, data.localIndex(minX, y, z), data.offsetNegX);
+        if (seedLateral) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    if (minX > 0) {
+                        seedRepairFromNeighbor(data, minX, y, z, data.localIndex(minX, y, z), data.offsetNegX);
+                    }
+                    if (maxX + 1 < width) {
+                        seedRepairFromNeighbor(data, maxX, y, z, data.localIndex(maxX, y, z), data.offsetPosX);
+                    }
                 }
-                if (maxX + 1 < width) {
-                    seedRepairFromNeighbor(data, maxX, y, z, data.localIndex(maxX, y, z), data.offsetPosX);
-                }
-            }
-            for (int x = minX; x <= maxX; x++) {
-                if (minZ > 0) {
-                    seedRepairFromNeighbor(data, x, y, minZ, data.localIndex(x, y, minZ), data.offsetNegZ);
-                }
-                if (maxZ + 1 < depth) {
-                    seedRepairFromNeighbor(data, x, y, maxZ, data.localIndex(x, y, maxZ), data.offsetPosZ);
+                for (int x = minX; x <= maxX; x++) {
+                    if (minZ > 0) {
+                        seedRepairFromNeighbor(data, x, y, minZ, data.localIndex(x, y, minZ), data.offsetNegZ);
+                    }
+                    if (maxZ + 1 < depth) {
+                        seedRepairFromNeighbor(data, x, y, maxZ, data.localIndex(x, y, maxZ), data.offsetPosZ);
+                    }
                 }
             }
         }
@@ -519,10 +537,12 @@ public final class LucisSkyLightEngine {
         private int[] columns = new int[0];
         private int stamp;
         private int count;
+        private boolean fullDepthRepair;
 
         private void reset(int capacity) {
             ensureCapacity(capacity);
             count = 0;
+            fullDepthRepair = false;
             stamp++;
             if (stamp == 0) {
                 Arrays.fill(stamps, 0);
@@ -539,7 +559,10 @@ public final class LucisSkyLightEngine {
             columns = new int[capacity];
         }
 
-        private void add(int column, int localY) {
+        private void add(int column, int localY, boolean fullDepthRepair) {
+            if (fullDepthRepair) {
+                this.fullDepthRepair = true;
+            }
             if (stamps[column] != stamp) {
                 stamps[column] = stamp;
                 maxY[column] = localY;
