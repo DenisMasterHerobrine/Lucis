@@ -26,10 +26,10 @@ public final class LucisBlockLightEngine {
 
         for (int index = 0; index < volume; index++) {
             int emission = emissionArray[index] & 0xF;
+            blockLight[index] = (byte) emission;
             if (emission <= 0) {
                 continue;
             }
-            blockLight[index] = (byte) emission;
             if (emission > 1) {
                 queue.enqueue(emission, index);
             }
