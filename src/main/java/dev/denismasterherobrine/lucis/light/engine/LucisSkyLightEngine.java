@@ -51,6 +51,9 @@ public final class LucisSkyLightEngine {
                         }
                     }
                     if (light <= 0) {
+                        for (y--; y >= 0; y--) {
+                            data.skyLight[columnBase + y * area] = 0;
+                        }
                         break;
                     }
                 }
