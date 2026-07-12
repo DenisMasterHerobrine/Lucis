@@ -92,7 +92,6 @@ neoForge {
             runConfig.systemProperty 'lucis.benchmark.y', providers.gradleProperty('benchmarkY').getOrElse('80')
             runConfig.systemProperty 'lucis.benchmark.passes', providers.gradleProperty('benchmarkPasses').getOrElse('6')
             runConfig.systemProperty 'lucis.benchmark.warmupPasses', providers.gradleProperty('benchmarkWarmupPasses').getOrElse('2')
-            runConfig.systemProperty 'lucis.benchmark.settleTicks', providers.gradleProperty('benchmarkSettleTicks').getOrElse('20')
             runConfig.systemProperty 'lucis.benchmark.maxWaitNanos', providers.gradleProperty('benchmarkMaxWaitNanos').getOrElse('120000000000')
             runConfig.systemProperty 'lucis.enabled', String.valueOf(lucisEnabled)
             runConfig.systemProperty 'lucis.regionChunks', '1'

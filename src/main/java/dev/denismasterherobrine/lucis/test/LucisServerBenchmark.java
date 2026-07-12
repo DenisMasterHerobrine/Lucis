@@ -357,7 +357,6 @@ public final class LucisServerBenchmark {
     private enum Phase {
         PREPARE,
         WAIT_PREPARE_LIGHT,
-        SETTLE,
         START_PASS,
         WAIT_LIGHT,
         COMPLETE
@@ -451,7 +450,6 @@ public final class LucisServerBenchmark {
                 switch (this.phase) {
                     case PREPARE -> this.prepare();
                     case WAIT_PREPARE_LIGHT -> this.waitPrepareLight();
-                    case SETTLE -> this.settle();
                     case START_PASS -> this.startPass();
                     case WAIT_LIGHT -> this.waitLight();
                     case COMPLETE -> {
@@ -547,18 +545,6 @@ public final class LucisServerBenchmark {
             LucisBenchmarkSupport.logResult("server_chunk_prepare_" + this.config.workload(), this.trackedChunks.length,
                     this.prepareStartNanos, completedNanos);
             this.waitTicks = 0;
-            this.phase = Phase.SETTLE;
-        }
-
-        private void settle() {
-            this.level.getChunkSource().getLightEngine().tryScheduleUpdate();
-            if (LucisServices.controller().hasPendingRuntimeWork()) {
-                this.waitTicks = 0;
-                return;
-            }
-            if (this.waitTicks++ < this.config.settleTicks()) {
-                return;
-            }
             LucisBenchmarkSupport.reset();
             this.phase = Phase.START_PASS;
         }
@@ -709,7 +695,7 @@ public final class LucisServerBenchmark {
                                    int structureSize, int structureWidth, int structureHeight, int structureDepth,
                                    long maxApplyBlocks, boolean skipPreparation, boolean lightOnly,
                                    boolean trackRegionAnchorsOnly, int prepareMaxTicks,
-                                   int passes, int warmupPasses, int settleTicks, int originX, int originZ, int y, long maxWaitNanos) {
+                                   int passes, int warmupPasses, int originX, int originZ, int y, long maxWaitNanos) {
         private static BenchmarkConfig fromProperties() {
             int structureSize = intProperty("lucis.benchmark.structureSize", 16);
             return new BenchmarkConfig(
@@ -730,7 +716,6 @@ public final class LucisServerBenchmark {
                     intProperty("lucis.benchmark.prepareMaxTicks", 0),
                     intProperty("lucis.benchmark.passes", 6),
                     intProperty("lucis.benchmark.warmupPasses", 2),
-                    intProperty("lucis.benchmark.settleTicks", 20),
                     intProperty("lucis.benchmark.originX", 0),
                     intProperty("lucis.benchmark.originZ", 0),
                     intProperty("lucis.benchmark.y", 80),
@@ -742,7 +727,7 @@ public final class LucisServerBenchmark {
             return new BenchmarkConfig(mode, workload, expectedMod, output, radiusChunks, chunkSpan,
                     structureSize, structureWidth, structureHeight, structureDepth,
                     maxApplyBlocks, skipPreparation, lightOnly, trackRegionAnchorsOnly, prepareMaxTicks,
-                    passes, warmupPasses, settleTicks,
+                    passes, warmupPasses,
                     originX, originZ, y, maxWaitNanos);
         }
 
