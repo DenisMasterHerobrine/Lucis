@@ -371,9 +371,11 @@ public final class LucisServerBenchmark {
         private final int maxChunkX;
         private final int minChunkZ;
         private final int maxChunkZ;
-        private final ChunkPos[] trackedChunks;
+        private final ChunkPos[] prepareChunks;
+        private final ChunkPos[] waitChunks;
         private final boolean[] preparedChunkLoaded;
-        private final CompletableFuture<?>[] waitFutures;
+        private CompletableFuture<?>[] waitFutures;
+        private ChunkPos[] activeWaitChunks;
         private final long prepareStartNanos;
         private long prepareChunksLoadedNanos;
         private int prepareChanges;
@@ -413,36 +415,30 @@ public final class LucisServerBenchmark {
             this.maxChunkX = maxX >> 4;
             this.minChunkZ = minZ >> 4;
             this.maxChunkZ = maxZ >> 4;
+            this.prepareChunks = createChunkGrid(this.minChunkX - 1, this.maxChunkX + 1, this.minChunkZ - 1, this.maxChunkZ + 1, 1);
             int runtimeRegionChunks = runtimeRegionChunks();
-            int effectiveMinChunkX = this.config.trackRegionAnchorsOnly()
+            int waitMinChunkX = this.config.trackRegionAnchorsOnly()
                     ? Math.floorDiv(this.minChunkX, runtimeRegionChunks) * runtimeRegionChunks
                     : this.minChunkX;
-            int effectiveMaxChunkX = this.config.trackRegionAnchorsOnly()
+            int waitMaxChunkX = this.config.trackRegionAnchorsOnly()
                     ? Math.floorDiv(this.maxChunkX, runtimeRegionChunks) * runtimeRegionChunks
                     : this.maxChunkX;
-            int effectiveMinChunkZ = this.config.trackRegionAnchorsOnly()
+            int waitMinChunkZ = this.config.trackRegionAnchorsOnly()
                     ? Math.floorDiv(this.minChunkZ, runtimeRegionChunks) * runtimeRegionChunks
                     : this.minChunkZ;
-            int effectiveMaxChunkZ = this.config.trackRegionAnchorsOnly()
+            int waitMaxChunkZ = this.config.trackRegionAnchorsOnly()
                     ? Math.floorDiv(this.maxChunkZ, runtimeRegionChunks) * runtimeRegionChunks
                     : this.maxChunkZ;
-            int stepChunks = this.config.trackRegionAnchorsOnly() ? runtimeRegionChunks : 1;
-            int chunkCount = ((effectiveMaxChunkX - effectiveMinChunkX) / stepChunks + 1)
-                    * ((effectiveMaxChunkZ - effectiveMinChunkZ) / stepChunks + 1);
-            this.trackedChunks = new ChunkPos[chunkCount];
-            this.preparedChunkLoaded = new boolean[chunkCount];
-            this.waitFutures = new CompletableFuture<?>[chunkCount];
-            this.remainingPrepareChunks = chunkCount;
+            int waitStepChunks = this.config.trackRegionAnchorsOnly() ? runtimeRegionChunks : 1;
+            this.waitChunks = createChunkGrid(waitMinChunkX, waitMaxChunkX, waitMinChunkZ, waitMaxChunkZ, waitStepChunks);
+            this.preparedChunkLoaded = new boolean[this.prepareChunks.length];
+            this.waitFutures = new CompletableFuture<?>[0];
+            this.remainingPrepareChunks = this.prepareChunks.length;
             this.prepareStartNanos = System.nanoTime();
             LucisBenchmarkSupport.reset();
-            int index = 0;
-            for (int chunkZ = effectiveMinChunkZ; chunkZ <= effectiveMaxChunkZ; chunkZ += stepChunks) {
-                for (int chunkX = effectiveMinChunkX; chunkX <= effectiveMaxChunkX; chunkX += stepChunks) {
-                    this.trackedChunks[index++] = new ChunkPos(chunkX, chunkZ);
-                }
-            }
-            LOGGER.info("Lucis light benchmark created: mode={} trackedChunks={} chunkRange=[{}, {}]x[{}, {}]",
-                    this.config.mode(), this.trackedChunks.length, this.minChunkX, this.maxChunkX, this.minChunkZ, this.maxChunkZ);
+            LOGGER.info("Lucis light benchmark created: mode={} prepareChunks={} waitChunks={} chunkRange=[{}, {}]x[{}, {}]",
+                    this.config.mode(), this.prepareChunks.length, this.waitChunks.length,
+                    this.minChunkX, this.maxChunkX, this.minChunkZ, this.maxChunkZ);
         }
 
         private void tick() {
@@ -464,9 +460,9 @@ public final class LucisServerBenchmark {
         private void prepare() {
             if (!this.prepareChunksLoaded) {
                 ChunkSource chunkSource = this.level.getChunkSource();
-                int ticketBudget = Math.min(PREPARE_TICKET_BUDGET_PER_TICK, this.trackedChunks.length - this.prepareTicketIndex);
-                while (ticketBudget > 0 && this.prepareTicketIndex < this.trackedChunks.length) {
-                    ChunkPos chunkPos = this.trackedChunks[this.prepareTicketIndex++];
+                int ticketBudget = Math.min(PREPARE_TICKET_BUDGET_PER_TICK, this.prepareChunks.length - this.prepareTicketIndex);
+                while (ticketBudget > 0 && this.prepareTicketIndex < this.prepareChunks.length) {
+                    ChunkPos chunkPos = this.prepareChunks[this.prepareTicketIndex++];
                     this.level.getChunkSource().addRegionTicket(BENCHMARK_TICKET_TYPE, chunkPos, FULL_CHUNK_TICKET_RADIUS, chunkPos);
                     ticketBudget--;
                 }
@@ -475,13 +471,13 @@ public final class LucisServerBenchmark {
                 int firstPendingIndex = -1;
                 while (pollBudget > 0 && this.remainingPrepareChunks > 0) {
                     int pollIndex = this.preparePollIndex++;
-                    if (this.preparePollIndex >= this.trackedChunks.length) {
+                    if (this.preparePollIndex >= this.prepareChunks.length) {
                         this.preparePollIndex = 0;
                     }
                     if (this.preparedChunkLoaded[pollIndex]) {
                         continue;
                     }
-                    ChunkPos chunkPos = this.trackedChunks[pollIndex];
+                    ChunkPos chunkPos = this.prepareChunks[pollIndex];
                     if (chunkSource.getChunkNow(chunkPos.x, chunkPos.z) != null) {
                         this.preparedChunkLoaded[pollIndex] = true;
                         this.remainingPrepareChunks--;
@@ -494,10 +490,10 @@ public final class LucisServerBenchmark {
                 if (this.remainingPrepareChunks > 0) {
                     if ((this.waitTicks++ & 31) == 0) {
                         int pendingIndex = firstPendingIndex >= 0 ? firstPendingIndex : this.firstPendingPrepareChunkIndex();
-                        ChunkPos chunkPos = pendingIndex >= 0 ? this.trackedChunks[pendingIndex] : this.trackedChunks[Math.min(this.preparePollIndex, this.trackedChunks.length - 1)];
+                        ChunkPos chunkPos = pendingIndex >= 0 ? this.prepareChunks[pendingIndex] : this.prepareChunks[Math.min(this.preparePollIndex, this.prepareChunks.length - 1)];
                         LOGGER.info("Lucis light benchmark prepare waiting: mode={} ticketed={}/{} loaded={}/{} pending={} at ({}, {})",
-                                this.config.mode(), this.prepareTicketIndex, this.trackedChunks.length,
-                                this.trackedChunks.length - this.remainingPrepareChunks, this.trackedChunks.length,
+                                this.config.mode(), this.prepareTicketIndex, this.prepareChunks.length,
+                                this.prepareChunks.length - this.remainingPrepareChunks, this.prepareChunks.length,
                                 this.remainingPrepareChunks, chunkPos.x, chunkPos.z);
                     }
                     if (this.config.prepareMaxTicks() > 0 && this.waitTicks > this.config.prepareMaxTicks()) {
@@ -510,9 +506,10 @@ public final class LucisServerBenchmark {
                 this.prepareChunksLoaded = true;
                 long prepareEndNanos = System.nanoTime();
                 this.prepareChunksLoadedNanos = prepareEndNanos;
-                LOGGER.info("Lucis light benchmark prepare chunks loaded: mode={} trackedChunks={} elapsedMs={}",
-                        this.config.mode(), this.trackedChunks.length, (prepareEndNanos - this.prepareStartNanos) / 1_000_000L);
-                LucisBenchmarkSupport.logResult("server_chunk_load_" + this.config.workload(), this.trackedChunks.length,
+                LOGGER.info("Lucis light benchmark prepare chunks loaded: mode={} prepareChunks={} waitChunks={} elapsedMs={}",
+                        this.config.mode(), this.prepareChunks.length, this.waitChunks.length,
+                        (prepareEndNanos - this.prepareStartNanos) / 1_000_000L);
+                LucisBenchmarkSupport.logResult("server_chunk_load_" + this.config.workload(), this.prepareChunks.length,
                         this.prepareStartNanos, prepareEndNanos);
                 LucisBenchmarkSupport.reset();
                 this.waitTicks = 0;
@@ -542,7 +539,7 @@ public final class LucisServerBenchmark {
                     Math.max(0L, completedNanos - this.waitStartNanos) / 1_000_000L,
                     (completedNanos - this.prepareStartNanos) / 1_000_000L);
             LucisBenchmarkSupport.record("bench.prepare_light_wait", Math.max(0L, completedNanos - this.waitStartNanos));
-            LucisBenchmarkSupport.logResult("server_chunk_prepare_" + this.config.workload(), this.trackedChunks.length,
+            LucisBenchmarkSupport.logResult("server_chunk_prepare_" + this.config.workload(), this.prepareChunks.length,
                     this.prepareStartNanos, completedNanos);
             this.waitTicks = 0;
             LucisBenchmarkSupport.reset();
@@ -550,9 +547,14 @@ public final class LucisServerBenchmark {
         }
 
         private void beginLightWait() {
+            ChunkPos[] chunks = this.phase == Phase.PREPARE ? this.prepareChunks : this.waitChunks;
+            if (this.waitFutures.length != chunks.length) {
+                this.waitFutures = new CompletableFuture<?>[chunks.length];
+            }
+            this.activeWaitChunks = chunks;
             this.level.getChunkSource().getLightEngine().tryScheduleUpdate();
-            for (int index = 0; index < this.trackedChunks.length; index++) {
-                ChunkPos chunkPos = this.trackedChunks[index];
+            for (int index = 0; index < chunks.length; index++) {
+                ChunkPos chunkPos = chunks[index];
                 this.waitFutures[index] = this.level.getChunkSource().getLightEngine().waitForPendingTasks(chunkPos.x, chunkPos.z);
             }
             this.waitTicks = 0;
@@ -570,7 +572,9 @@ public final class LucisServerBenchmark {
 
         private boolean waitForLight(boolean prepare) {
             CompletableFuture<Void> future = this.waitFuture;
-            if ((future == null || future.isDone()) && !LucisServices.controller().hasPendingRuntimeWork()) {
+            if ((future == null || future.isDone())
+                    && !LucisServices.controller().hasPendingRuntimeWork()
+                    && !LucisServices.controller().hasPendingWorldgenWork()) {
                 return true;
             }
             this.level.getChunkSource().getLightEngine().tryScheduleUpdate();
@@ -592,15 +596,18 @@ public final class LucisServerBenchmark {
                     }
                     pending++;
                     if (pendingChunk.isEmpty()) {
-                        ChunkPos chunkPos = this.trackedChunks[index];
+                        ChunkPos[] chunks = this.activeWaitChunks == null ? this.waitChunks : this.activeWaitChunks;
+                        ChunkPos chunkPos = chunks[index];
                         pendingChunk = chunkPos.x + "," + chunkPos.z;
                     }
                 }
                 boolean runtimePending = LucisServices.controller().hasPendingRuntimeWork();
+                boolean worldgenPending = LucisServices.controller().hasPendingWorldgenWork();
                 LOGGER.info("Lucis light benchmark still waiting: mode={} phase={} pass={}/{} waitTicks={} pendingFutures={}{}",
                         this.config.mode(), this.phase, this.pass + 1, this.totalPasses, this.waitTicks, pending,
                         (pendingChunk.isEmpty() ? "" : " firstPending=" + pendingChunk)
-                                + (runtimePending ? " runtimePending=true" : ""));
+                                + (runtimePending ? " runtimePending=true" : "")
+                                + (worldgenPending ? " worldgenPending=true" : ""));
             }
             return false;
         }
@@ -676,7 +683,7 @@ public final class LucisServerBenchmark {
         }
 
         private void releaseTickets() {
-            for (ChunkPos chunkPos : this.trackedChunks) {
+            for (ChunkPos chunkPos : this.prepareChunks) {
                 this.level.getChunkSource().removeRegionTicket(BENCHMARK_TICKET_TYPE, chunkPos, FULL_CHUNK_TICKET_RADIUS, chunkPos);
             }
         }
@@ -688,6 +695,19 @@ public final class LucisServerBenchmark {
                 }
             }
             return -1;
+        }
+
+        private static ChunkPos[] createChunkGrid(int minChunkX, int maxChunkX, int minChunkZ, int maxChunkZ, int stepChunks) {
+            int step = Math.max(1, stepChunks);
+            int chunkCount = ((maxChunkX - minChunkX) / step + 1) * ((maxChunkZ - minChunkZ) / step + 1);
+            ChunkPos[] chunks = new ChunkPos[chunkCount];
+            int index = 0;
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ += step) {
+                for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX += step) {
+                    chunks[index++] = new ChunkPos(chunkX, chunkZ);
+                }
+            }
+            return chunks;
         }
     }
 

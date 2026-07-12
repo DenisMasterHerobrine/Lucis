@@ -2,12 +2,14 @@ package dev.denismasterherobrine.lucis.light.engine;
 
 import dev.denismasterherobrine.lucis.light.LightMaterial;
 import dev.denismasterherobrine.lucis.light.LightMaterialCache;
-import dev.denismasterherobrine.lucis.light.region.RegionChunkSnapshot;
 import dev.denismasterherobrine.lucis.light.region.RegionBounds;
 import dev.denismasterherobrine.lucis.light.region.RegionLightData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.LightChunk;
 import net.minecraft.world.level.chunk.LightChunkGetter;
 
@@ -62,42 +64,32 @@ public final class LucisRegionExtractor {
         int coreMaxBlockZ = coreMinBlockZ + bounds.regionChunks() * 16;
 
         try {
-            for (int worldY = bounds.minBuildY(); worldY < bounds.maxBuildY(); worldY++) {
-                int localY = worldY - bounds.minBuildY();
-                int yBase = localY * area;
-                for (int worldZ = minBlockZ; worldZ < maxBlockZ; worldZ++) {
-                    int chunkZ = worldZ >> 4;
-                    int localZ = worldZ - minBlockZ;
-                    int rowBase = yBase + localZ * width;
-                    for (int worldX = minBlockX; worldX < maxBlockX; worldX++) {
-                        int chunkX = worldX >> 4;
-                        int chunkIndex = (chunkX - minChunkX) + (chunkZ - minChunkZ) * chunkWidth;
-                        LightChunk chunk = chunks[chunkIndex];
-                        if (!chunkResolved[chunkIndex]) {
-                            chunk = coreChunk != null
-                                    && chunkX == bounds.originChunkX()
-                                    && chunkZ == bounds.originChunkZ()
-                                    ? coreChunk
-                                    : getter.getChunkForLighting(chunkX, chunkZ);
-                            chunks[chunkIndex] = chunk;
-                            chunkResolved[chunkIndex] = true;
-                        }
-                        BlockState state;
-                        if (chunk == null) {
-                            state = worldX >= coreMinBlockX && worldX < coreMaxBlockX
-                                    && worldZ >= coreMinBlockZ && worldZ < coreMaxBlockZ
-                                    ? net.minecraft.world.level.block.Blocks.BEDROCK.defaultBlockState()
-                                    : net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
-                            mutable.set(worldX, worldY, worldZ);
-                        } else {
-                            mutable.set(worldX, worldY, worldZ);
-                            state = chunk.getBlockState(mutable);
-                        }
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+                int blockZStart = Math.max(minBlockZ, chunkZ << 4);
+                int blockZEnd = Math.min(maxBlockZ, (chunkZ << 4) + 16);
+                for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+                    int chunkIndex = (chunkX - minChunkX) + (chunkZ - minChunkZ) * chunkWidth;
+                    LightChunk chunk = chunks[chunkIndex];
+                    if (!chunkResolved[chunkIndex]) {
+                        chunk = coreChunk != null
+                                && chunkX == bounds.originChunkX()
+                                && chunkZ == bounds.originChunkZ()
+                                ? coreChunk
+                                : getter.getChunkForLighting(chunkX, chunkZ);
+                        chunks[chunkIndex] = chunk;
+                        chunkResolved[chunkIndex] = true;
+                    }
 
-                        LightMaterial material = materialCache.lookup(level, state, mutable);
-                        int index = rowBase + (worldX - minBlockX);
-                        data.opacity[index] = material.opacity();
-                        data.emission[index] = material.emission();
+                    int blockXStart = Math.max(minBlockX, chunkX << 4);
+                    int blockXEnd = Math.min(maxBlockX, (chunkX << 4) + 16);
+                    if (chunk instanceof ChunkAccess chunkAccess) {
+                        populateChunkSections(level, data, mutable, chunkAccess, blockXStart, blockXEnd, blockZStart, blockZEnd);
+                    } else {
+                        BlockState missingState = blockXStart < coreMaxBlockX && blockXEnd > coreMinBlockX
+                                && blockZStart < coreMaxBlockZ && blockZEnd > coreMinBlockZ
+                                ? Blocks.BEDROCK.defaultBlockState()
+                                : Blocks.AIR.defaultBlockState();
+                        populateFallback(level, data, mutable, chunk, missingState, blockXStart, blockXEnd, blockZStart, blockZEnd);
                     }
                 }
             }
@@ -106,33 +98,64 @@ public final class LucisRegionExtractor {
         }
     }
 
-    public void populateFromSnapshot(BlockGetter level, RegionLightData data, RegionChunkSnapshot snapshot) {
-        data.beginFullPopulate();
-        BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos();
-        RegionBounds bounds = data.bounds;
-        int minBlockX = bounds.minBlockX();
-        int minBlockZ = bounds.minBlockZ();
-        int maxBlockX = bounds.maxBlockXExclusive();
-        int maxBlockZ = bounds.maxBlockZExclusive();
-        int width = bounds.widthBlocks();
-        int area = bounds.area();
+    private void populateChunkSections(BlockGetter level, RegionLightData data, BlockPos.MutableBlockPos mutable,
+                                       ChunkAccess chunk, int blockXStart, int blockXEnd, int blockZStart, int blockZEnd) {
+        LevelChunkSection[] sections = chunk.getSections();
+        int minSectionY = chunk.getMinSection();
+        int firstSection = Math.max(0, (data.bounds.minBuildY() >> 4) - minSectionY);
+        int lastSectionExclusive = Math.min(sections.length, ((data.bounds.maxBuildY() - 1) >> 4) - minSectionY + 1);
 
-        for (int worldY = bounds.minBuildY(); worldY < bounds.maxBuildY(); worldY++) {
-            int localY = worldY - bounds.minBuildY();
-            int yBase = localY * area;
-            for (int worldZ = minBlockZ; worldZ < maxBlockZ; worldZ++) {
-                int localZ = worldZ - minBlockZ;
-                int rowBase = yBase + localZ * width;
-                for (int worldX = minBlockX; worldX < maxBlockX; worldX++) {
-                    mutable.set(worldX, worldY, worldZ);
-                    BlockState state = snapshot.getBlockState(worldX, worldY, worldZ);
-                    LightMaterial material = materialCache.lookup(level, state, mutable);
-                    int index = rowBase + (worldX - minBlockX);
-                    data.opacity[index] = material.opacity();
-                    data.emission[index] = material.emission();
+        for (int sectionIndex = firstSection; sectionIndex < lastSectionExclusive; sectionIndex++) {
+            LevelChunkSection section = sections[sectionIndex];
+            int sectionMinY = (minSectionY + sectionIndex) << 4;
+            int blockYStart = Math.max(data.bounds.minBuildY(), sectionMinY);
+            int blockYEnd = Math.min(data.bounds.maxBuildY(), sectionMinY + 16);
+            populateSectionCells(level, data, mutable, section, blockXStart, blockXEnd, blockYStart, blockYEnd, blockZStart, blockZEnd);
+        }
+    }
+
+    private void populateSectionCells(BlockGetter level, RegionLightData data, BlockPos.MutableBlockPos mutable,
+                                      LevelChunkSection section, int blockXStart, int blockXEnd, int blockYStart,
+                                      int blockYEnd, int blockZStart, int blockZEnd) {
+        int minBlockX = data.bounds.minBlockX();
+        int minBlockZ = data.bounds.minBlockZ();
+        int minBuildY = data.bounds.minBuildY();
+        int width = data.bounds.widthBlocks();
+        int area = data.bounds.area();
+        for (int worldY = blockYStart; worldY < blockYEnd; worldY++) {
+            int yBase = (worldY - minBuildY) * area;
+            for (int worldZ = blockZStart; worldZ < blockZEnd; worldZ++) {
+                int rowBase = yBase + (worldZ - minBlockZ) * width;
+                for (int worldX = blockXStart; worldX < blockXEnd; worldX++) {
+                    BlockState state = section.getBlockState(worldX & 15, worldY & 15, worldZ & 15);
+                    writeMaterial(level, data, mutable, state, worldX, worldY, worldZ, rowBase + (worldX - minBlockX));
                 }
             }
         }
+    }
+
+    private void populateFallback(BlockGetter level, RegionLightData data, BlockPos.MutableBlockPos mutable,
+                                  LightChunk chunk, BlockState missingState, int blockXStart, int blockXEnd,
+                                  int blockZStart, int blockZEnd) {
+        for (int worldY = data.bounds.minBuildY(); worldY < data.bounds.maxBuildY(); worldY++) {
+            int yBase = (worldY - data.bounds.minBuildY()) * data.bounds.area();
+            for (int worldZ = blockZStart; worldZ < blockZEnd; worldZ++) {
+                int rowBase = yBase + (worldZ - data.bounds.minBlockZ()) * data.bounds.widthBlocks();
+                for (int worldX = blockXStart; worldX < blockXEnd; worldX++) {
+                    mutable.set(worldX, worldY, worldZ);
+                    BlockState state = chunk == null ? missingState : chunk.getBlockState(mutable);
+                    writeMaterial(level, data, mutable, state, worldX, worldY, worldZ, rowBase + (worldX - data.bounds.minBlockX()));
+                }
+            }
+        }
+    }
+
+    private void writeMaterial(BlockGetter level, RegionLightData data, BlockPos.MutableBlockPos mutable,
+                               BlockState state, int worldX, int worldY, int worldZ, int index) {
+        mutable.set(worldX, worldY, worldZ);
+        LightMaterial material = materialCache.lookup(level, state, mutable);
+        data.opacity[index] = material.opacity();
+        data.emission[index] = material.emission();
     }
 
     private static final class ChunkScratch {

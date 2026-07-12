@@ -4,7 +4,7 @@ import dev.denismasterherobrine.lucis.compat.LucisCompat;
 import dev.denismasterherobrine.lucis.config.LucisConfig;
 import dev.denismasterherobrine.lucis.light.LightMaterialCache;
 import dev.denismasterherobrine.lucis.light.region.RegionBounds;
-import dev.denismasterherobrine.lucis.light.region.RegionChunkSnapshot;
+import dev.denismasterherobrine.lucis.light.region.RegionLightData;
 import dev.denismasterherobrine.lucis.light.runtime.LucisRelightResult;
 import dev.denismasterherobrine.lucis.light.runtime.LucisRuntimeManager;
 import dev.denismasterherobrine.lucis.test.LucisBenchmarkSupport;
@@ -36,6 +36,7 @@ public final class LucisEngineController {
     private final LucisRelighter relighter = new LucisRelighter(materialCache, new LucisRegionExtractor(materialCache));
     private final LucisRuntimeManager runtimeManager = new LucisRuntimeManager();
     private final ExecutorService worldgenWorkers = Executors.newFixedThreadPool(worldgenWorkerCount(), new LucisWorldgenThreadFactory());
+    private final AtomicInteger pendingWorldgenTasks = new AtomicInteger();
     private final ThreadLocal<Integer> worldgenWriteDepth = ThreadLocal.withInitial(() -> 0);
     private final ThreadLocal<RuntimeBulkScope> runtimeBulkScope = new ThreadLocal<>();
     private final AtomicLong runtimeBackpressureUntilNanos = new AtomicLong();
@@ -57,22 +58,29 @@ public final class LucisEngineController {
     }
 
     public CompletableFuture<LucisRelightResult> relightChunkAsync(LightChunkGetter getter, ChunkAccess chunk, boolean trustEdges) {
-        long submittedAt = LucisBenchmarkSupport.start();
         ChunkPos chunkPos = chunk.getPos();
-        RegionBounds bounds = RegionBounds.around(chunkPos, chunk.getHeightAccessorForGeneration(), 1, 1);
-        long snapshotStartedAt = LucisBenchmarkSupport.start();
-        RegionChunkSnapshot snapshot = RegionChunkSnapshot.capture(getter, bounds, chunk);
-        LucisBenchmarkSupport.recordSince("lucis.stage.worldgen.snapshot", snapshotStartedAt);
+        pendingWorldgenTasks.incrementAndGet();
+        RegionLightData data;
+        try {
+            long extractStartedAt = LucisBenchmarkSupport.start();
+            data = relighter.extractChunkData(getter, chunk, 1, 1);
+            LucisBenchmarkSupport.recordSince("lucis.stage.worldgen.extract", extractStartedAt);
+        } catch (Throwable throwable) {
+            pendingWorldgenTasks.decrementAndGet();
+            throw throwable;
+        }
+
+        long submittedAt = LucisBenchmarkSupport.start();
         return CompletableFuture.supplyAsync(() -> {
             long startedAt = LucisBenchmarkSupport.start();
             if (startedAt != 0L && submittedAt != 0L) {
                 LucisBenchmarkSupport.record("lucis.light_chunk.worker_wait", startedAt - submittedAt);
             }
-            LucisRelightResult result = relighter.relightChunkSnapshot(chunkPos, snapshot,
+            LucisRelightResult result = relighter.relightPreparedChunk(chunkPos, data,
                     LucisConfig.enableSky, LucisConfig.enableBlock);
             LucisBenchmarkSupport.recordSince("lucis.light_chunk.worker_compute", startedAt);
             return result;
-        }, worldgenWorkers);
+        }, worldgenWorkers).whenComplete((result, throwable) -> pendingWorldgenTasks.decrementAndGet());
     }
 
     public LucisRelightResult relightAtBlock(LightChunkGetter getter, BlockPos pos) {
@@ -224,6 +232,10 @@ public final class LucisEngineController {
         return runtimeManager.hasPendingWork();
     }
 
+    public boolean hasPendingWorldgenWork() {
+        return pendingWorldgenTasks.get() > 0;
+    }
+
     public void beginWorldgenWrite() {
         worldgenWriteDepth.set(worldgenWriteDepth.get() + 1);
     }
@@ -237,8 +249,12 @@ public final class LucisEngineController {
         }
     }
 
-    private boolean isWorldgenWriteSuppressed() {
+    private boolean isWorldgenWriteActive() {
         return worldgenWriteDepth.get() > 0;
+    }
+
+    private boolean isWorldgenWriteSuppressed() {
+        return isWorldgenWriteActive();
     }
 
     private static int regionCount(int minChunkX, int maxChunkX, int minChunkZ, int maxChunkZ) {
