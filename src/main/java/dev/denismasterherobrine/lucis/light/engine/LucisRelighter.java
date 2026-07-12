@@ -197,15 +197,15 @@ public final class LucisRelighter {
         BlockPos.MutableBlockPos pos = runtimeMaterialPos.get();
         for (BlockChangeRecord change : changes) {
             pos.set(change.x(), change.y(), change.z());
-            LightMaterial oldMaterial = materialCache.lookup(level, change.oldState(), pos);
-            LightMaterial newMaterial = materialCache.lookup(level, change.newState(), pos);
-            if (oldMaterial.opacity() == newMaterial.opacity() && oldMaterial.emission() == newMaterial.emission()) {
+            int oldMaterial = materialCache.lookupLight(level, change.oldState(), pos);
+            int newMaterial = materialCache.lookupLight(level, change.newState(), pos);
+            if (LightMaterial.hasSameLight(oldMaterial, newMaterial)) {
                 continue;
             }
             runtimeChanges.add(new RuntimeLightChange(
                     change.x(), change.y(), change.z(),
-                    oldMaterial.opacity(), newMaterial.opacity(),
-                    oldMaterial.emission(), newMaterial.emission()
+                    LightMaterial.opacity(oldMaterial), LightMaterial.opacity(newMaterial),
+                    LightMaterial.emission(oldMaterial), LightMaterial.emission(newMaterial)
             ));
         }
     }

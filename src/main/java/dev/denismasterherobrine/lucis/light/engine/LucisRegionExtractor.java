@@ -153,9 +153,9 @@ public final class LucisRegionExtractor {
     private void writeMaterial(BlockGetter level, RegionLightData data, BlockPos.MutableBlockPos mutable,
                                BlockState state, int worldX, int worldY, int worldZ, int index) {
         mutable.set(worldX, worldY, worldZ);
-        LightMaterial material = materialCache.lookup(level, state, mutable);
-        data.opacity[index] = material.opacity();
-        data.emission[index] = material.emission();
+        int material = materialCache.lookupLight(level, state, mutable);
+        data.opacity[index] = LightMaterial.opacity(material);
+        data.emission[index] = LightMaterial.emission(material);
     }
 
     private static final class ChunkScratch {

@@ -5,46 +5,65 @@ import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
-import java.util.concurrent.atomic.AtomicReferenceArray;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 
 public final class LightMaterialCache {
-    private static final BlockPos ZERO = BlockPos.ZERO;
-    private final AtomicReferenceArray<LightMaterial> cache = new AtomicReferenceArray<>(Block.BLOCK_STATE_REGISTRY.size());
+    private static final VarHandle INT_ARRAY = MethodHandles.arrayElementVarHandle(int[].class);
+    private static final int UNCACHED = 0;
+    private static final int DYNAMIC_OPACITY = 1 << 31;
+    private static final int ENCODED_DYNAMIC_MARKER = 1;
+    private static final int DYNAMIC_EMISSION_SHIFT = 1;
 
-    public LightMaterial lookup(BlockGetter level, BlockState state, BlockPos pos) {
+    // each slot publishes one self-contained int
+    // a stale/uncached read can only cause a duplicate recompute, not wrong light data
+    private final int[] lightCache = new int[Block.BLOCK_STATE_REGISTRY.size()];
+
+    public int lookupLight(BlockGetter level, BlockState state, BlockPos pos) {
         int id = Block.getId(state);
-        LightMaterial cached = cache.get(id);
-        if (cached != null) {
-            return cached;
+        int cached = (int) INT_ARRAY.getOpaque(lightCache, id);
+        if (cached != UNCACHED) {
+            return unpackCachedLight(level, state, pos, cached);
         }
 
-        byte opacity = (byte) Math.max(0, Math.min(LucisConstants.MAX_LIGHT, state.getLightBlock(level, pos)));
-        byte emission = (byte) Math.max(0, Math.min(LucisConstants.MAX_LIGHT, state.getLightEmission()));
-        byte flags = 0;
-        if (state.isAir()) {
-            flags |= LightMaterial.FLAG_AIR;
-        }
-        if (state.propagatesSkylightDown(level, pos)) {
-            flags |= LightMaterial.FLAG_SKYLIGHT_DOWN;
-        }
-        if (state.canOcclude()) {
-            flags |= LightMaterial.FLAG_OCCLUDES;
+        int emission = clampLight(state.getLightEmission());
+        if (state.useShapeForLightOcclusion()) {
+            INT_ARRAY.setOpaque(lightCache, id, encodeDynamic(emission));
+            return LightMaterial.packLight(clampLight(state.getLightBlock(level, pos)), emission);
         }
 
-        LightMaterial material = new LightMaterial(opacity, emission, flags);
-        if (!state.useShapeForLightOcclusion()) {
-            cache.compareAndSet(id, null, material);
-            return cache.get(id);
-        }
+        int packed = LightMaterial.packLight(clampLight(state.getLightBlock(level, pos)), emission);
+        INT_ARRAY.setOpaque(lightCache, id, encodeStatic(packed));
+        return packed;
+    }
 
-        if (pos == ZERO) {
-            return material;
+    private int unpackCachedLight(BlockGetter level, BlockState state, BlockPos pos, int cached) {
+        if ((cached & DYNAMIC_OPACITY) != 0) {
+            return LightMaterial.packLight(clampLight(state.getLightBlock(level, pos)), dynamicEmission(cached));
         }
+        return decodeStatic(cached);
+    }
 
-        return new LightMaterial(
-                (byte) Math.max(0, Math.min(LucisConstants.MAX_LIGHT, state.getLightBlock(level, pos))),
-                emission,
-                flags
-        );
+    private static int encodeStatic(int packed) {
+        return (packed & LightMaterial.LIGHT_MASK) + 1;
+    }
+
+    private static int decodeStatic(int cached) {
+        return (cached - 1) & LightMaterial.LIGHT_MASK;
+    }
+
+    private static int encodeDynamic(int emission) {
+        return DYNAMIC_OPACITY | ENCODED_DYNAMIC_MARKER | ((emission & 0xF) << DYNAMIC_EMISSION_SHIFT);
+    }
+
+    private static int dynamicEmission(int cached) {
+        return (cached >>> DYNAMIC_EMISSION_SHIFT) & 0xF;
+    }
+
+    private static int clampLight(int light) {
+        if (light <= 0) {
+            return 0;
+        }
+        return Math.min(light, LucisConstants.MAX_LIGHT);
     }
 }
