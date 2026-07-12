@@ -337,14 +337,37 @@ public final class LucisServerBenchmark {
                 + "\"lightOnly\":" + config.lightOnly() + ","
                 + "\"trackRegionAnchorsOnly\":" + config.trackRegionAnchorsOnly() + ","
                 + "\"prepareMaxTicks\":" + config.prepareMaxTicks() + ","
+                + "\"strictDrainBeforeMeasure\":" + config.strictDrainBeforeMeasure() + ","
+                + "\"waitWorldgenDuringMeasured\":" + config.waitWorldgenDuringMeasured() + ","
                 + "\"capped\":" + config.capped() + ","
                 + "\"passes\":" + config.passes() + ","
                 + "\"warmupPasses\":" + config.warmupPasses() + ","
                 + "\"changes\":" + stats.measuredChanges() + ","
                 + "\"nanos\":" + stats.measuredNanos() + ","
                 + "\"millis\":" + stats.measuredNanos() / 1_000_000.0D + ","
+                + "\"applyNanos\":" + stats.measuredApplyNanos() + ","
+                + "\"applyMillis\":" + stats.measuredApplyNanos() / 1_000_000.0D + ","
+                + "\"waitNanos\":" + stats.measuredWaitNanos() + ","
+                + "\"waitMillis\":" + stats.measuredWaitNanos() / 1_000_000.0D + ","
+                + "\"prepareLoadNanos\":" + stats.prepareLoadNanos() + ","
+                + "\"prepareWaitNanos\":" + stats.prepareWaitNanos() + ","
+                + "\"preMeasureQuiesceNanos\":" + stats.preMeasureQuiesceNanos() + ","
+                + "\"measuredBarrierNanos\":" + stats.measuredBarrierNanos() + ","
+                + "\"measuredBarrierCount\":" + stats.measuredBarrierCount() + ","
+                + "\"measuredPasses\":" + stats.measuredPasses() + ","
+                + "\"measuredChangesPerPass\":" + (stats.measuredPasses() == 0 ? 0.0D : (double) stats.measuredChanges() / stats.measuredPasses()) + ","
+                + "\"minPassNanos\":" + stats.minPassNanosOrZero() + ","
+                + "\"maxPassNanos\":" + stats.maxPassNanos() + ","
                 + "\"projectedMillis\":" + stats.projectedMillis(config) + ","
                 + "\"status\":\"" + escape(stats.status()) + "\","
+                + "\"nsPerChangeApplyOnly\":" + (stats.measuredChanges() == 0 ? 0.0D : (double) stats.measuredApplyNanos() / stats.measuredChanges()) + ","
+                + "\"nsPerChangeWaitOnly\":" + (stats.measuredChanges() == 0 ? 0.0D : (double) stats.measuredWaitNanos() / stats.measuredChanges()) + ","
+                + "\"msPerMeasuredPass\":" + (stats.measuredPasses() == 0 ? 0.0D : stats.measuredNanos() / 1_000_000.0D / stats.measuredPasses()) + ","
+                + "\"worldgenPendingBeforeMeasuredPass\":" + stats.worldgenPendingBeforeMeasuredPass() + ","
+                + "\"runtimePendingBeforeMeasuredPass\":" + stats.runtimePendingBeforeMeasuredPass() + ","
+                + "\"worldgenPendingAfterApply\":" + stats.worldgenPendingAfterApply() + ","
+                + "\"runtimePendingAfterApply\":" + stats.runtimePendingAfterApply() + ","
+                + "\"measuredWorldgenWaitEnabled\":" + config.waitWorldgenDuringMeasured() + ","
                 + "\"nsPerChange\":" + (stats.measuredChanges() == 0 ? 0.0D : (double) stats.measuredNanos() / stats.measuredChanges())
                 + "}";
         Files.writeString(output, json + System.lineSeparator(), StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
@@ -357,9 +380,23 @@ public final class LucisServerBenchmark {
     private enum Phase {
         PREPARE,
         WAIT_PREPARE_LIGHT,
+        QUIESCE_BEFORE_MEASURE,
         START_PASS,
         WAIT_LIGHT,
         COMPLETE
+    }
+
+    private enum WaitMode {
+        FULL_DRAIN(true, true),
+        RUNTIME_ONLY(true, false);
+
+        private final boolean waitRuntime;
+        private final boolean waitWorldgen;
+
+        WaitMode(boolean waitRuntime, boolean waitWorldgen) {
+            this.waitRuntime = waitRuntime;
+            this.waitWorldgen = waitWorldgen;
+        }
     }
 
     private static final class BenchmarkRun {
@@ -388,12 +425,31 @@ public final class LucisServerBenchmark {
         private int waitTicks;
         private int currentChanges;
         private long currentStartNanos;
+        private long currentApplyNanos;
         private long waitStartNanos;
         private volatile long waitCompleteNanos;
         private volatile Throwable waitFailure;
         private CompletableFuture<Void> waitFuture;
+        private WaitMode waitMode = WaitMode.FULL_DRAIN;
+        private boolean preMeasureQuiesced;
+        private long prepareLoadNanos;
+        private long prepareWaitNanos;
+        private long preMeasureQuiesceStartNanos;
+        private long preMeasureQuiesceNanos;
+        private long measuredBarrierStartNanos;
+        private long measuredBarrierNanos;
         private long measuredNanos;
+        private long measuredApplyNanos;
+        private long measuredWaitNanos;
+        private long minPassNanos = Long.MAX_VALUE;
+        private long maxPassNanos;
         private int measuredChanges;
+        private int measuredPasses;
+        private int measuredBarrierCount;
+        private int worldgenPendingBeforeMeasuredPass;
+        private int runtimePendingBeforeMeasuredPass;
+        private int worldgenPendingAfterApply;
+        private int runtimePendingAfterApply;
 
         private BenchmarkRun(MinecraftServer server, BenchmarkConfig config) {
             this.server = server;
@@ -446,6 +502,7 @@ public final class LucisServerBenchmark {
                 switch (this.phase) {
                     case PREPARE -> this.prepare();
                     case WAIT_PREPARE_LIGHT -> this.waitPrepareLight();
+                    case QUIESCE_BEFORE_MEASURE -> this.waitPreMeasureQuiesce();
                     case START_PASS -> this.startPass();
                     case WAIT_LIGHT -> this.waitLight();
                     case COMPLETE -> {
@@ -519,7 +576,7 @@ public final class LucisServerBenchmark {
             } else {
                 this.prepareChanges = applyPreparationPattern(this.level, this.config);
             }
-            this.beginLightWait();
+            this.beginLightWait(WaitMode.FULL_DRAIN, this.prepareChunks);
             this.phase = Phase.WAIT_PREPARE_LIGHT;
         }
 
@@ -533,24 +590,30 @@ public final class LucisServerBenchmark {
                 return;
             }
             long completedNanos = this.waitCompleteNanos == 0L ? System.nanoTime() : this.waitCompleteNanos;
+            this.prepareLoadNanos = Math.max(0L, this.prepareChunksLoadedNanos - this.prepareStartNanos);
+            this.prepareWaitNanos = Math.max(0L, completedNanos - this.waitStartNanos);
             LOGGER.info("Lucis light benchmark prepare complete: mode={} waitTicks={} changes={} loadMs={} lightWaitMs={} totalMs={}",
                     this.config.mode(), this.waitTicks, this.prepareChanges,
-                    (this.prepareChunksLoadedNanos - this.prepareStartNanos) / 1_000_000L,
-                    Math.max(0L, completedNanos - this.waitStartNanos) / 1_000_000L,
+                    this.prepareLoadNanos / 1_000_000L,
+                    this.prepareWaitNanos / 1_000_000L,
                     (completedNanos - this.prepareStartNanos) / 1_000_000L);
-            LucisBenchmarkSupport.record("bench.prepare_light_wait", Math.max(0L, completedNanos - this.waitStartNanos));
+            LucisBenchmarkSupport.record("bench.prepare_light_wait", this.prepareWaitNanos);
             LucisBenchmarkSupport.logResult("server_chunk_prepare_" + this.config.workload(), this.prepareChunks.length,
                     this.prepareStartNanos, completedNanos);
             this.waitTicks = 0;
             LucisBenchmarkSupport.reset();
-            this.phase = Phase.START_PASS;
+            if (this.config.strictDrainBeforeMeasure() && this.config.warmupPasses() == 0) {
+                this.beginPreMeasureQuiesce();
+            } else {
+                this.phase = Phase.START_PASS;
+            }
         }
 
-        private void beginLightWait() {
-            ChunkPos[] chunks = this.phase == Phase.PREPARE ? this.prepareChunks : this.waitChunks;
+        private void beginLightWait(WaitMode mode, ChunkPos[] chunks) {
             if (this.waitFutures.length != chunks.length) {
                 this.waitFutures = new CompletableFuture<?>[chunks.length];
             }
+            this.waitMode = mode;
             this.activeWaitChunks = chunks;
             this.level.getChunkSource().getLightEngine().tryScheduleUpdate();
             for (int index = 0; index < chunks.length; index++) {
@@ -566,15 +629,15 @@ public final class LucisServerBenchmark {
                 this.waitFailure = throwable;
             });
             this.level.getChunkSource().getLightEngine().tryScheduleUpdate();
-            LOGGER.info("Lucis light benchmark light wait started: mode={} pass={} phase={} futures={}",
-                    this.config.mode(), this.pass, this.phase, this.waitFutures.length);
+            LOGGER.info("Lucis light benchmark light wait started: mode={} pass={} phase={} waitMode={} futures={}",
+                    this.config.mode(), this.pass, this.phase, this.waitMode, this.waitFutures.length);
         }
 
         private boolean waitForLight(boolean prepare) {
             CompletableFuture<Void> future = this.waitFuture;
-            if ((future == null || future.isDone())
-                    && !LucisServices.controller().hasPendingRuntimeWork()
-                    && !LucisServices.controller().hasPendingWorldgenWork()) {
+            boolean runtimePending = this.waitMode.waitRuntime && LucisServices.controller().hasPendingRuntimeWork();
+            boolean worldgenPending = this.shouldWaitWorldgen() && LucisServices.controller().hasPendingWorldgenWork();
+            if ((future == null || future.isDone()) && !runtimePending && !worldgenPending) {
                 return true;
             }
             this.level.getChunkSource().getLightEngine().tryScheduleUpdate();
@@ -601,10 +664,8 @@ public final class LucisServerBenchmark {
                         pendingChunk = chunkPos.x + "," + chunkPos.z;
                     }
                 }
-                boolean runtimePending = LucisServices.controller().hasPendingRuntimeWork();
-                boolean worldgenPending = LucisServices.controller().hasPendingWorldgenWork();
-                LOGGER.info("Lucis light benchmark still waiting: mode={} phase={} pass={}/{} waitTicks={} pendingFutures={}{}",
-                        this.config.mode(), this.phase, this.pass + 1, this.totalPasses, this.waitTicks, pending,
+                LOGGER.info("Lucis light benchmark still waiting: mode={} phase={} pass={}/{} waitMode={} waitTicks={} pendingFutures={}{}",
+                        this.config.mode(), this.phase, this.pass + 1, this.totalPasses, this.waitMode, this.waitTicks, pending,
                         (pendingChunk.isEmpty() ? "" : " firstPending=" + pendingChunk)
                                 + (runtimePending ? " runtimePending=true" : "")
                                 + (worldgenPending ? " worldgenPending=true" : ""));
@@ -612,10 +673,56 @@ public final class LucisServerBenchmark {
             return false;
         }
 
+        private boolean shouldWaitWorldgen() {
+            return this.waitMode.waitWorldgen || (this.phase == Phase.WAIT_LIGHT && this.config.waitWorldgenDuringMeasured());
+        }
+
+        private void beginPreMeasureQuiesce() {
+            this.preMeasureQuiesceStartNanos = System.nanoTime();
+            this.beginLightWait(WaitMode.FULL_DRAIN, this.prepareChunks);
+            this.phase = Phase.QUIESCE_BEFORE_MEASURE;
+        }
+
+        private void beginMeasuredBarrierDrain() {
+            this.measuredBarrierStartNanos = System.nanoTime();
+            this.measuredBarrierCount++;
+            this.beginLightWait(WaitMode.FULL_DRAIN, this.prepareChunks);
+            this.phase = Phase.QUIESCE_BEFORE_MEASURE;
+        }
+
+        private void waitPreMeasureQuiesce() {
+            if (!this.waitForLight(false)) {
+                return;
+            }
+            if (this.waitFailure != null) {
+                LOGGER.error("Lucis light benchmark pre-measure quiesce failed mode={}", this.config.mode(), this.waitFailure);
+                this.finish();
+                return;
+            }
+            long completedNanos = this.waitCompleteNanos == 0L ? System.nanoTime() : this.waitCompleteNanos;
+            boolean measuredBarrier = this.measuredBarrierStartNanos != 0L;
+            long drainNanos;
+            if (this.measuredBarrierStartNanos != 0L) {
+                drainNanos = Math.max(0L, completedNanos - this.measuredBarrierStartNanos);
+                this.measuredBarrierNanos += drainNanos;
+                this.measuredBarrierStartNanos = 0L;
+            } else {
+                drainNanos = Math.max(0L, completedNanos - this.preMeasureQuiesceStartNanos);
+                this.preMeasureQuiesceNanos += drainNanos;
+            }
+            this.preMeasureQuiesced = true;
+            this.waitTicks = 0;
+            LucisBenchmarkSupport.reset();
+            LOGGER.info("Lucis light benchmark {} complete: mode={} elapsedMs={}",
+                    measuredBarrier ? "measured barrier drain" : "pre-measure quiesce",
+                    this.config.mode(), drainNanos / 1_000_000L);
+            this.phase = Phase.START_PASS;
+        }
+
         private void startPass() {
             if (this.pass >= this.totalPasses) {
                 try {
-                    BenchmarkStats stats = new BenchmarkStats(this.measuredChanges, this.measuredNanos, "ok");
+                    BenchmarkStats stats = this.stats("ok", this.measuredChanges, this.measuredNanos);
                     writeResult(this.server, this.config, stats);
                     LOGGER.info("Lucis light benchmark complete: mode={} changes={} measuredMs={} nsPerChange={}",
                             this.config.mode(), stats.measuredChanges(), stats.measuredNanos() / 1_000_000L,
@@ -628,13 +735,43 @@ public final class LucisServerBenchmark {
                 this.finish();
                 return;
             }
+            if (this.config.strictDrainBeforeMeasure()
+                    && !this.preMeasureQuiesced
+                    && this.pass >= this.config.warmupPasses()) {
+                this.beginPreMeasureQuiesce();
+                return;
+            }
+            if (this.config.strictDrainBeforeMeasure()
+                    && this.pass >= this.config.warmupPasses()
+                    && (LucisServices.controller().hasPendingWorldgenWork()
+                    || LucisServices.controller().hasPendingRuntimeWork())) {
+                this.beginMeasuredBarrierDrain();
+                return;
+            }
+            if (this.pass >= this.config.warmupPasses()) {
+                if (LucisServices.controller().hasPendingWorldgenWork()) {
+                    this.worldgenPendingBeforeMeasuredPass++;
+                }
+                if (LucisServices.controller().hasPendingRuntimeWork()) {
+                    this.runtimePendingBeforeMeasuredPass++;
+                }
+            }
             BlockState state = stateForPass(this.config, this.pass);
             this.currentStartNanos = System.nanoTime();
             this.currentChanges = applyPattern(this.level, this.config, state);
-            LucisBenchmarkSupport.record("bench.apply_pattern", System.nanoTime() - this.currentStartNanos);
+            this.currentApplyNanos = System.nanoTime() - this.currentStartNanos;
+            LucisBenchmarkSupport.record("bench.apply_pattern", this.currentApplyNanos);
             LOGGER.info("Lucis light benchmark pass start {}/{} state={} changes={}",
                     this.pass + 1, this.totalPasses, state.getBlock().builtInRegistryHolder().key().location(), this.currentChanges);
-            this.beginLightWait();
+            if (this.pass >= this.config.warmupPasses()) {
+                if (LucisServices.controller().hasPendingWorldgenWork()) {
+                    this.worldgenPendingAfterApply++;
+                }
+                if (LucisServices.controller().hasPendingRuntimeWork()) {
+                    this.runtimePendingAfterApply++;
+                }
+            }
+            this.beginLightWait(this.pass >= this.config.warmupPasses() ? WaitMode.RUNTIME_ONLY : WaitMode.FULL_DRAIN, this.waitChunks);
             this.phase = Phase.WAIT_LIGHT;
         }
 
@@ -649,11 +786,18 @@ public final class LucisServerBenchmark {
                 return;
             }
             long completedNanos = this.waitCompleteNanos;
-            long elapsed = (completedNanos == 0L ? System.nanoTime() : completedNanos) - this.currentStartNanos;
-            LucisBenchmarkSupport.record("bench.wait_after_apply", Math.max(0L, (completedNanos == 0L ? System.nanoTime() : completedNanos) - this.waitStartNanos));
+            long endNanos = completedNanos == 0L ? System.nanoTime() : completedNanos;
+            long elapsed = endNanos - this.currentStartNanos;
+            long waitNanos = Math.max(0L, endNanos - this.waitStartNanos);
+            LucisBenchmarkSupport.record("bench.wait_after_apply", waitNanos);
             if (this.pass >= this.config.warmupPasses()) {
                 this.measuredNanos += elapsed;
+                this.measuredApplyNanos += this.currentApplyNanos;
+                this.measuredWaitNanos += waitNanos;
                 this.measuredChanges += this.currentChanges;
+                this.measuredPasses++;
+                this.minPassNanos = Math.min(this.minPassNanos, elapsed);
+                this.maxPassNanos = Math.max(this.maxPassNanos, elapsed);
             }
             LOGGER.info("Lucis light benchmark pass {}/{} state={} changes={} elapsedMs={} waitTicks={}",
                     this.pass + 1, this.totalPasses,
@@ -662,8 +806,21 @@ public final class LucisServerBenchmark {
             this.pass++;
             if (this.pass == this.config.warmupPasses()) {
                 LucisBenchmarkSupport.reset();
+                if (this.config.strictDrainBeforeMeasure()) {
+                    this.beginPreMeasureQuiesce();
+                    return;
+                }
             }
             this.phase = Phase.START_PASS;
+        }
+
+        private BenchmarkStats stats(String status, long changes, long nanos) {
+            return new BenchmarkStats(changes, nanos, this.measuredApplyNanos, this.measuredWaitNanos,
+                    this.prepareLoadNanos, this.prepareWaitNanos, this.preMeasureQuiesceNanos,
+                    this.measuredBarrierNanos, this.measuredBarrierCount,
+                    this.measuredPasses, this.minPassNanos, this.maxPassNanos,
+                    this.worldgenPendingBeforeMeasuredPass, this.runtimePendingBeforeMeasuredPass,
+                    this.worldgenPendingAfterApply, this.runtimePendingAfterApply, status);
         }
 
         private void finish() {
@@ -675,7 +832,7 @@ public final class LucisServerBenchmark {
 
         private void writeAndFinish(String status, long changes, long nanos) {
             try {
-                writeResult(this.server, this.config, new BenchmarkStats(changes, nanos, status));
+                writeResult(this.server, this.config, this.stats(status, changes, nanos));
             } catch (IOException exception) {
                 LOGGER.error("Failed to write Lucis light benchmark result", exception);
             }
@@ -715,6 +872,7 @@ public final class LucisServerBenchmark {
                                    int structureSize, int structureWidth, int structureHeight, int structureDepth,
                                    long maxApplyBlocks, boolean skipPreparation, boolean lightOnly,
                                    boolean trackRegionAnchorsOnly, int prepareMaxTicks,
+                                   boolean strictDrainBeforeMeasure, boolean waitWorldgenDuringMeasured,
                                    int passes, int warmupPasses, int originX, int originZ, int y, long maxWaitNanos) {
         private static BenchmarkConfig fromProperties() {
             int structureSize = intProperty("lucis.benchmark.structureSize", 16);
@@ -734,6 +892,8 @@ public final class LucisServerBenchmark {
                     booleanProperty("lucis.benchmark.lightOnly", false),
                     booleanProperty("lucis.benchmark.trackRegionAnchorsOnly", false),
                     intProperty("lucis.benchmark.prepareMaxTicks", 0),
+                    booleanProperty("lucis.benchmark.strictDrainBeforeMeasure", true),
+                    booleanProperty("lucis.benchmark.waitWorldgenDuringMeasured", false),
                     intProperty("lucis.benchmark.passes", 6),
                     intProperty("lucis.benchmark.warmupPasses", 2),
                     intProperty("lucis.benchmark.originX", 0),
@@ -747,6 +907,7 @@ public final class LucisServerBenchmark {
             return new BenchmarkConfig(mode, workload, expectedMod, output, radiusChunks, chunkSpan,
                     structureSize, structureWidth, structureHeight, structureDepth,
                     maxApplyBlocks, skipPreparation, lightOnly, trackRegionAnchorsOnly, prepareMaxTicks,
+                    strictDrainBeforeMeasure, waitWorldgenDuringMeasured,
                     passes, warmupPasses,
                     originX, originZ, y, maxWaitNanos);
         }
@@ -820,12 +981,22 @@ public final class LucisServerBenchmark {
         }
     }
 
-    private record BenchmarkStats(long measuredChanges, long measuredNanos, String status) {
+    private record BenchmarkStats(long measuredChanges, long measuredNanos, long measuredApplyNanos,
+                                  long measuredWaitNanos, long prepareLoadNanos, long prepareWaitNanos,
+                                  long preMeasureQuiesceNanos, long measuredBarrierNanos,
+                                  int measuredBarrierCount, int measuredPasses, long minPassNanos,
+                                  long maxPassNanos, int worldgenPendingBeforeMeasuredPass,
+                                  int runtimePendingBeforeMeasuredPass, int worldgenPendingAfterApply,
+                                  int runtimePendingAfterApply, String status) {
         private double projectedMillis(BenchmarkConfig config) {
             if (measuredChanges <= 0L || config.plannedChanges() <= 0L || !config.capped()) {
                 return 0.0D;
             }
             return measuredNanos / 1_000_000.0D * ((double) config.plannedChanges() / measuredChanges);
+        }
+
+        private long minPassNanosOrZero() {
+            return minPassNanos == Long.MAX_VALUE ? 0L : minPassNanos;
         }
     }
 

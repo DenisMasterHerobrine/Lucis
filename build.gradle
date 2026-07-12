@@ -87,6 +87,8 @@ neoForge {
             runConfig.systemProperty 'lucis.benchmark.lightOnly', providers.gradleProperty('benchmarkLightOnly').getOrElse('false')
             runConfig.systemProperty 'lucis.benchmark.trackRegionAnchorsOnly', providers.gradleProperty('benchmarkTrackRegionAnchorsOnly').getOrElse('false')
             runConfig.systemProperty 'lucis.benchmark.prepareMaxTicks', providers.gradleProperty('benchmarkPrepareMaxTicks').getOrElse('0')
+            runConfig.systemProperty 'lucis.benchmark.strictDrainBeforeMeasure', providers.gradleProperty('benchmarkStrictDrainBeforeMeasure').getOrElse('true')
+            runConfig.systemProperty 'lucis.benchmark.waitWorldgenDuringMeasured', providers.gradleProperty('benchmarkWaitWorldgenDuringMeasured').getOrElse('false')
             runConfig.systemProperty 'lucis.benchmark.originX', providers.gradleProperty('benchmarkOriginX').getOrElse('0')
             runConfig.systemProperty 'lucis.benchmark.originZ', providers.gradleProperty('benchmarkOriginZ').getOrElse('0')
             runConfig.systemProperty 'lucis.benchmark.y', providers.gradleProperty('benchmarkY').getOrElse('80')

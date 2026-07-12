@@ -156,6 +156,7 @@ public final class LucisRuntimeManager implements AutoCloseable {
         }
 
         RegionBounds bounds = RegionBounds.around(anchor, getter.getLevel(), regionChunks, haloChunks);
+        HashMap<Long, LightChunk> expectedChunks = captureExpectedChunks(getter, bounds);
         RuntimeRegionState ownedState = regionCache.getOrCreate(bounds);
         ownedState.touch();
         LucisBenchmarkSupport.count("lucis.runtime.jobs.runtime.submit");
@@ -172,7 +173,12 @@ public final class LucisRuntimeManager implements AutoCloseable {
                 LucisBenchmarkSupport.count("lucis.runtime.jobs.results", results.size());
                 for (LucisRelightResult result : results) {
                     LucisBenchmarkSupport.count("lucis.runtime.jobs.sections", result.sections().size());
-                    commitQueue.add(new RuntimeCommit(result, null));
+                    LightChunk expectedChunk = expectedChunks.get(ChunkPos.asLong(result.chunkPos().x, result.chunkPos().z));
+                    if (expectedChunk == null) {
+                        LucisBenchmarkSupport.count("lucis.runtime.commit.skippedMissingExpectedChunk");
+                        continue;
+                    }
+                    commitQueue.add(new RuntimeCommit(result, expectedChunk));
                 }
             } finally {
                 LucisBenchmarkSupport.recordSince("lucis.stage.runtime.job.runtime", jobStartedAt);
@@ -198,6 +204,22 @@ public final class LucisRuntimeManager implements AutoCloseable {
         } else {
             updateQueue.enqueueAll(batch.changes());
         }
+    }
+
+    private HashMap<Long, LightChunk> captureExpectedChunks(LightChunkGetter getter, RegionBounds bounds) {
+        int regionChunks = bounds.regionChunks();
+        HashMap<Long, LightChunk> expectedChunks = new HashMap<>(regionChunks * regionChunks);
+        int maxChunkX = bounds.originChunkX() + regionChunks;
+        int maxChunkZ = bounds.originChunkZ() + regionChunks;
+        for (int chunkZ = bounds.originChunkZ(); chunkZ < maxChunkZ; chunkZ++) {
+            for (int chunkX = bounds.originChunkX(); chunkX < maxChunkX; chunkX++) {
+                LightChunk chunk = getter.getChunkForLighting(chunkX, chunkZ);
+                if (chunk != null) {
+                    expectedChunks.put(ChunkPos.asLong(chunkX, chunkZ), chunk);
+                }
+            }
+        }
+        return expectedChunks;
     }
 
     private boolean isFullRelightCoalescing(long regionKey) {
