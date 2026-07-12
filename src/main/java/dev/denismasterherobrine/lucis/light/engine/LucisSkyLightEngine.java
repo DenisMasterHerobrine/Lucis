@@ -3,12 +3,11 @@ package dev.denismasterherobrine.lucis.light.engine;
 import dev.denismasterherobrine.lucis.light.LucisConstants;
 import dev.denismasterherobrine.lucis.light.region.RegionBounds;
 import dev.denismasterherobrine.lucis.light.region.RegionLightData;
-import dev.denismasterherobrine.lucis.light.runtime.RuntimeLightChange;
+import dev.denismasterherobrine.lucis.light.runtime.RuntimeLightChangeBuffer;
 import dev.denismasterherobrine.lucis.light.util.IntBucketQueue;
 import dev.denismasterherobrine.lucis.test.LucisBenchmarkSupport;
 
 import java.util.Arrays;
-import java.util.List;
 
 public final class LucisSkyLightEngine {
     private static final int RUNTIME_REPAIR_RADIUS_XZ = Math.max(0, Integer.getInteger("lucis.sky.runtimeRepairRadius", 2));
@@ -71,7 +70,7 @@ public final class LucisSkyLightEngine {
         }
     }
 
-    public void applyRuntimeChanges(RegionLightData data, List<RuntimeLightChange> changes) {
+    public void applyRuntimeChanges(RegionLightData data, RuntimeLightChangeBuffer changes) {
         RuntimeColumns columns = runtimeColumns.get();
         collectColumns(data, changes, columns);
         LucisBenchmarkSupport.count("lucis.sky.runtime.columns", columns.count);
@@ -83,27 +82,24 @@ public final class LucisSkyLightEngine {
         repairRuntimeArea(data, columns);
     }
 
-    private void collectColumns(RegionLightData data, List<RuntimeLightChange> changes, RuntimeColumns columns) {
+    private void collectColumns(RegionLightData data, RuntimeLightChangeBuffer changes, RuntimeColumns columns) {
         int width = data.bounds.widthBlocks();
-        int height = data.bounds.heightBlocks();
-        int depth = data.bounds.depthBlocks();
-        columns.reset(width * depth);
-        for (RuntimeLightChange change : changes) {
-            if ((change.oldOpacity() & 0xF) == (change.newOpacity() & 0xF)) {
+        int area = data.bounds.area();
+        columns.reset(width * data.bounds.depthBlocks());
+        for (int i = 0; i < changes.size(); i++) {
+            long change = changes.get(i);
+            if (RuntimeLightChangeBuffer.oldOpacity(change) == RuntimeLightChangeBuffer.newOpacity(change)) {
                 continue;
             }
-            int localX = change.worldX() - data.bounds.minBlockX();
-            int localY = change.worldY() - data.bounds.minBuildY();
-            int localZ = change.worldZ() - data.bounds.minBlockZ();
-            if (localX >= 0 && localX < width && localY >= 0 && localY < height && localZ >= 0 && localZ < depth) {
-                int index = data.localIndex(localX, localY, localZ);
-                columns.add(localX + localZ * width, localY, requiresFullDepthRepair(data, change, index, localY));
-            }
+            int index = RuntimeLightChangeBuffer.localIndex(change);
+            int localY = index / area;
+            int column = index - localY * area;
+            columns.add(column, localY, requiresFullDepthRepair(data, change, index, localY));
         }
     }
 
-    private boolean requiresFullDepthRepair(RegionLightData data, RuntimeLightChange change, int index, int localY) {
-        if ((change.oldOpacity() & 0xF) == (change.newOpacity() & 0xF)) {
+    private boolean requiresFullDepthRepair(RegionLightData data, long change, int index, int localY) {
+        if (RuntimeLightChangeBuffer.oldOpacity(change) == RuntimeLightChangeBuffer.newOpacity(change)) {
             return false;
         }
         if ((data.skyLight[index] & 0xF) != 0) {

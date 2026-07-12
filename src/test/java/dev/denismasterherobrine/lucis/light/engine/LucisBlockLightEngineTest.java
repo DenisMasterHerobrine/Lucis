@@ -1,11 +1,10 @@
 package dev.denismasterherobrine.lucis.light.engine;
 
+import dev.denismasterherobrine.lucis.light.LightMaterial;
 import dev.denismasterherobrine.lucis.light.region.RegionBounds;
 import dev.denismasterherobrine.lucis.light.region.RegionLightData;
-import dev.denismasterherobrine.lucis.light.runtime.RuntimeLightChange;
+import dev.denismasterherobrine.lucis.light.runtime.RuntimeLightChangeBuffer;
 import org.junit.jupiter.api.Test;
-
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -15,12 +14,11 @@ class LucisBlockLightEngineTest {
         RegionBounds bounds = new RegionBounds(0, 0, 1, 0, 16, 16,
                 0, 16, 0, 1, 16, 256, 4096);
         RegionLightData data = new RegionLightData(bounds);
-        RuntimeLightChange firstTorch = new RuntimeLightChange(8, 8, 8,
-                (byte) 0, (byte) 0, (byte) 0, (byte) 14);
-        RuntimeLightChange secondTorch = new RuntimeLightChange(2, 2, 2,
-                (byte) 0, (byte) 0, (byte) 0, (byte) 14);
+        RuntimeLightChangeBuffer changes = new RuntimeLightChangeBuffer(2);
+        changes.addLight(data.localIndex(8, 8, 8), LightMaterial.packLight(0, 0), LightMaterial.packLight(0, 14));
+        changes.addLight(data.localIndex(2, 2, 2), LightMaterial.packLight(0, 0), LightMaterial.packLight(0, 14));
 
-        new LucisBlockLightEngine().applyRuntimeChangesFast(data, List.of(firstTorch, secondTorch));
+        new LucisBlockLightEngine().applyRuntimeChangesFast(data, changes);
 
         assertEquals(14, data.blockLight[data.localIndex(8, 8, 8)] & 0xF);
         assertEquals(13, data.blockLight[data.localIndex(9, 8, 8)] & 0xF);

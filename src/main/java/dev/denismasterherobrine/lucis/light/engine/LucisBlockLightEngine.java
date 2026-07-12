@@ -2,11 +2,9 @@ package dev.denismasterherobrine.lucis.light.engine;
 
 import dev.denismasterherobrine.lucis.light.region.RegionBounds;
 import dev.denismasterherobrine.lucis.light.region.RegionLightData;
-import dev.denismasterherobrine.lucis.light.runtime.RuntimeLightChange;
+import dev.denismasterherobrine.lucis.light.runtime.RuntimeLightChangeBuffer;
 import dev.denismasterherobrine.lucis.light.util.IntBucketQueue;
 import dev.denismasterherobrine.lucis.light.util.IntRingQueue;
-
-import java.util.List;
 
 public final class LucisBlockLightEngine {
     private static final int REMOVAL_LEVEL_BITS = 4;
@@ -60,36 +58,24 @@ public final class LucisBlockLightEngine {
         }
     }
 
-    public void applyRuntimeChanges(RegionLightData data, List<RuntimeLightChange> changes) {
+    public void applyRuntimeChanges(RegionLightData data, RuntimeLightChangeBuffer changes) {
         Queues queues = this.queues.get();
         IntBucketQueue queue = queues.lightQueue;
         IntRingQueue removals = queues.removals;
         queue.clear();
         removals.clear();
-        RegionBounds bounds = data.bounds;
-        int minBlockX = bounds.minBlockX();
-        int minBlockZ = bounds.minBlockZ();
-        int minBuildY = bounds.minBuildY();
-        int width = bounds.widthBlocks();
-        int depth = bounds.depthBlocks();
-        int height = bounds.heightBlocks();
 
-        for (RuntimeLightChange change : changes) {
-            int localX = change.worldX() - minBlockX;
-            int localY = change.worldY() - minBuildY;
-            int localZ = change.worldZ() - minBlockZ;
-            if (localX < 0 || localX >= width || localZ < 0 || localZ >= depth || localY < 0 || localY >= height) {
-                continue;
-            }
-            int index = data.localIndex(localX, localY, localZ);
+        for (int i = 0; i < changes.size(); i++) {
+            long change = changes.get(i);
+            int index = RuntimeLightChangeBuffer.localIndex(change);
             int oldLight = data.blockLight[index] & 0xF;
-            int oldOpacity = change.oldOpacity() & 0xF;
-            int newOpacity = change.newOpacity() & 0xF;
-            int oldEmission = change.oldEmission() & 0xF;
-            int newEmission = change.newEmission() & 0xF;
+            int oldOpacity = RuntimeLightChangeBuffer.oldOpacity(change);
+            int newOpacity = RuntimeLightChangeBuffer.newOpacity(change);
+            int oldEmission = RuntimeLightChangeBuffer.oldEmission(change);
+            int newEmission = RuntimeLightChangeBuffer.newEmission(change);
 
             data.blockLight[index] = (byte) newEmission;
-            data.markDirtyBlockLocal(localX, localY, localZ);
+            data.markDirtyBlockIndex(index);
 
             if (oldLight > 0 && (newEmission < oldEmission || newOpacity > oldOpacity)) {
                 enqueueRemoval(removals, index, oldLight);
@@ -106,10 +92,11 @@ public final class LucisBlockLightEngine {
         processAdds(data, queue);
     }
 
-    public void applyRuntimeChangesFast(RegionLightData data, List<RuntimeLightChange> changes) {
-        for (RuntimeLightChange change : changes) {
-            if ((change.newEmission() & 0xF) < (change.oldEmission() & 0xF)
-                    || (change.newOpacity() & 0xF) != (change.oldOpacity() & 0xF)) {
+    public void applyRuntimeChangesFast(RegionLightData data, RuntimeLightChangeBuffer changes) {
+        for (int i = 0; i < changes.size(); i++) {
+            long change = changes.get(i);
+            if (RuntimeLightChangeBuffer.newEmission(change) < RuntimeLightChangeBuffer.oldEmission(change)
+                    || RuntimeLightChangeBuffer.newOpacity(change) != RuntimeLightChangeBuffer.oldOpacity(change)) {
                 applyRuntimeChanges(data, changes);
                 return;
             }
@@ -117,28 +104,16 @@ public final class LucisBlockLightEngine {
 
         IntBucketQueue queue = queues.get().lightQueue;
         queue.clear();
-        RegionBounds bounds = data.bounds;
-        int minBlockX = bounds.minBlockX();
-        int minBlockZ = bounds.minBlockZ();
-        int minBuildY = bounds.minBuildY();
-        int width = bounds.widthBlocks();
-        int depth = bounds.depthBlocks();
-        int height = bounds.heightBlocks();
-        for (RuntimeLightChange change : changes) {
-            int localX = change.worldX() - minBlockX;
-            int localY = change.worldY() - minBuildY;
-            int localZ = change.worldZ() - minBlockZ;
-            if (localX < 0 || localX >= width || localZ < 0 || localZ >= depth || localY < 0 || localY >= height) {
-                continue;
-            }
-            int index = data.localIndex(localX, localY, localZ);
-            int emission = change.newEmission() & 0xF;
+        for (int i = 0; i < changes.size(); i++) {
+            long change = changes.get(i);
+            int index = RuntimeLightChangeBuffer.localIndex(change);
+            int emission = RuntimeLightChangeBuffer.newEmission(change);
             int oldLight = data.blockLight[index] & 0xF;
             if (emission <= oldLight) {
                 continue;
             }
             data.blockLight[index] = (byte) emission;
-            data.markDirtyBlockLocal(localX, localY, localZ);
+            data.markDirtyBlockIndex(index);
             if (emission > 1) {
                 queue.enqueue(emission, index);
             }

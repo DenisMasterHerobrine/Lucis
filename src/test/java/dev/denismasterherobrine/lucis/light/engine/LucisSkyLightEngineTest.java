@@ -1,13 +1,11 @@
 package dev.denismasterherobrine.lucis.light.engine;
 
 import dev.denismasterherobrine.lucis.light.LucisConstants;
+import dev.denismasterherobrine.lucis.light.LightMaterial;
 import dev.denismasterherobrine.lucis.light.region.RegionBounds;
 import dev.denismasterherobrine.lucis.light.region.RegionLightData;
-import dev.denismasterherobrine.lucis.light.runtime.RuntimeLightChange;
+import dev.denismasterherobrine.lucis.light.runtime.RuntimeLightChangeBuffer;
 import org.junit.jupiter.api.Test;
-
-import java.util.ArrayList;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -27,7 +25,7 @@ class LucisSkyLightEngineTest {
         LucisSkyLightEngine engine = new LucisSkyLightEngine();
         engine.compute(data);
 
-        List<RuntimeLightChange> changes = applyRoofOpacity(data, LucisConstants.MAX_LIGHT);
+        RuntimeLightChangeBuffer changes = applyRoofOpacity(data, LucisConstants.MAX_LIGHT);
 
         engine.applyRuntimeChanges(data, changes);
 
@@ -41,7 +39,7 @@ class LucisSkyLightEngineTest {
         LucisSkyLightEngine engine = new LucisSkyLightEngine();
         engine.compute(data);
 
-        List<RuntimeLightChange> changes = applyRoofOpacity(data, 1);
+        RuntimeLightChangeBuffer changes = applyRoofOpacity(data, 1);
 
         engine.applyRuntimeChanges(data, changes);
 
@@ -67,7 +65,7 @@ class LucisSkyLightEngineTest {
             }
         }
 
-        List<RuntimeLightChange> changes = applyRoofOpacity(data, 20, 21, 20, 21, LucisConstants.MAX_LIGHT);
+        RuntimeLightChangeBuffer changes = applyRoofOpacity(data, 20, 21, 20, 21, LucisConstants.MAX_LIGHT);
 
         engine.applyRuntimeChanges(data, changes);
 
@@ -81,19 +79,18 @@ class LucisSkyLightEngineTest {
         return new RegionLightData(bounds);
     }
 
-    private static List<RuntimeLightChange> applyRoofOpacity(RegionLightData data, int opacity) {
+    private static RuntimeLightChangeBuffer applyRoofOpacity(RegionLightData data, int opacity) {
         return applyRoofOpacity(data, ROOF_MIN, ROOF_MAX, ROOF_MIN, ROOF_MAX, opacity);
     }
 
-    private static List<RuntimeLightChange> applyRoofOpacity(RegionLightData data, int minX, int maxX, int minZ, int maxZ,
-                                                            int opacity) {
-        int roofWidth = ROOF_MAX - ROOF_MIN + 1;
-        ArrayList<RuntimeLightChange> changes = new ArrayList<>(roofWidth * roofWidth);
+    private static RuntimeLightChangeBuffer applyRoofOpacity(RegionLightData data, int minX, int maxX, int minZ, int maxZ,
+                                                             int opacity) {
+        RuntimeLightChangeBuffer changes = new RuntimeLightChangeBuffer((maxX - minX + 1) * (maxZ - minZ + 1));
         for (int z = minZ; z <= maxZ; z++) {
             for (int x = minX; x <= maxX; x++) {
-                data.opacity[data.localIndex(x, ROOF_Y, z)] = (byte) opacity;
-                changes.add(new RuntimeLightChange(x, ROOF_Y, z,
-                        (byte) 0, (byte) opacity, (byte) 0, (byte) 0));
+                int index = data.localIndex(x, ROOF_Y, z);
+                data.opacity[index] = (byte) opacity;
+                changes.addLight(index, LightMaterial.packLight(0, 0), LightMaterial.packLight(opacity, 0));
             }
         }
         return changes;

@@ -21,7 +21,11 @@ public final class LucisBenchmarkSupport {
     }
 
     public static boolean enabled() {
-        return LucisConfig.debug;
+        try {
+            return LucisConfig.debug;
+        } catch (LinkageError ignored) {
+            return Boolean.getBoolean("lucis.debug");
+        }
     }
 
     public static long start() {
