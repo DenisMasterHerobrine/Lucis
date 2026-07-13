@@ -2,6 +2,7 @@ package dev.denismasterherobrine.lucis.light.engine;
 
 import dev.denismasterherobrine.lucis.compat.LucisCompat;
 import dev.denismasterherobrine.lucis.config.LucisConfig;
+import dev.denismasterherobrine.lucis.light.LightMaterial;
 import dev.denismasterherobrine.lucis.light.LightMaterialCache;
 import dev.denismasterherobrine.lucis.light.region.RegionBounds;
 import dev.denismasterherobrine.lucis.light.region.RegionLightData;
@@ -108,6 +109,15 @@ public final class LucisEngineController {
     public boolean shouldHandleBlockChange(Level level, BlockPos pos) {
         return shouldHandleBlockChange(pos) && !LucisCompat.isSablePlotChunk(level,
                 SectionPos.blockToSectionCoord(pos.getX()), SectionPos.blockToSectionCoord(pos.getZ()));
+    }
+
+    public boolean hasRelevantRuntimeMaterialChange(Level level, BlockPos pos, BlockState oldState, BlockState newState) {
+        if (!enabled() || !LucisConfig.enableRuntime || level == null || pos == null || oldState == newState) {
+            return false;
+        }
+        int oldMaterial = materialCache.lookupLight(level, oldState, pos);
+        int newMaterial = materialCache.lookupLight(level, newState, pos);
+        return !LightMaterial.hasSameRuntimeProperties(oldMaterial, newMaterial);
     }
 
     public void enqueueBlockChange(BlockPos pos, BlockState oldState, BlockState newState) {

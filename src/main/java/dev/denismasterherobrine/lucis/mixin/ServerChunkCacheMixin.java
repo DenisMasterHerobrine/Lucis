@@ -16,7 +16,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class ServerChunkCacheMixin {
     @Shadow
     @Final
-    net.minecraft.server.level.ThreadedLevelLightEngine lightEngine;
+    ThreadedLevelLightEngine lightEngine;
 
     @Inject(method = "tick", at = @At("TAIL"))
     private void lucis$tick(java.util.function.BooleanSupplier hasTimeLeft, boolean tickChunks, CallbackInfo ci) {

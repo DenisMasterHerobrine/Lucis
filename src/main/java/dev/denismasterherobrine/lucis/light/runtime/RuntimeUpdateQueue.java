@@ -31,17 +31,10 @@ public final class RuntimeUpdateQueue {
         return true;
     }
 
-    public boolean enqueue(BlockChangeRecord record) {
-        if (record == null) {
-            return false;
-        }
-        return enqueue(regionKeyForRecord(record), record.x(), record.y(), record.z(), record.oldState(), record.newState());
-    }
-
-    public int enqueueAll(Collection<BlockChangeRecord> records) {
+    public int enqueueAll(long regionKey, Collection<BlockChangeRecord> records) {
         int accepted = 0;
         for (BlockChangeRecord record : records) {
-            if (enqueue(record)) {
+            if (record != null && enqueue(regionKey, record.x(), record.y(), record.z(), record.oldState(), record.newState())) {
                 accepted++;
             }
         }
@@ -66,11 +59,12 @@ public final class RuntimeUpdateQueue {
             if (pending == null) {
                 continue;
             }
-            RuntimeRegionBatch batch = pending.drain();
+            DrainedRegion drainedRegion = pending.drain();
+            RuntimeRegionBatch batch = drainedRegion.batch();
             if (batch.isEmpty()) {
                 continue;
             }
-            count += batch.queuedWorkCount();
+            count += drainedRegion.reservations();
             drained.merge(entry.getKey(), batch, RuntimeUpdateQueue::mergeBatches);
         }
         pendingCount.addAndGet(-count);
@@ -90,10 +84,6 @@ public final class RuntimeUpdateQueue {
         pendingCount.set(0);
     }
 
-    private static long regionKeyForRecord(BlockChangeRecord record) {
-        return (((long) (record.x() >> 4)) << 32) ^ ((record.z() >> 4) & 0xffffffffL);
-    }
-
     private static RuntimeRegionBatch mergeBatches(RuntimeRegionBatch first, RuntimeRegionBatch second) {
         if (first.fullRelight() || second.fullRelight()) {
             return RuntimeRegionBatch.fullRelight(first.originalChangeCount() + second.originalChangeCount());
@@ -101,16 +91,21 @@ public final class RuntimeUpdateQueue {
         ArrayList<BlockChangeRecord> merged = new ArrayList<>(first.queuedChangeCount() + second.queuedChangeCount());
         merged.addAll(first.changes());
         merged.addAll(second.changes());
-        return RuntimeRegionBatch.incremental(merged);
+        return new RuntimeRegionBatch(merged, false, first.originalChangeCount() + second.originalChangeCount());
+    }
+
+    private record DrainedRegion(RuntimeRegionBatch batch, int reservations) {
     }
 
     private static final class PendingRegion {
         private final HashMap<Long, BlockChangeRecord> changes = new HashMap<>();
         private boolean fullRelight;
         private long originalChangeCount;
+        private int reservations;
 
         private synchronized void enqueue(int x, int y, int z, BlockState oldState, BlockState newState, int fullRelightChangeThreshold) {
             originalChangeCount++;
+            reservations++;
             if (fullRelight) {
                 return;
             }
@@ -125,28 +120,33 @@ public final class RuntimeUpdateQueue {
             long count = Math.max(1L, changes);
             originalChangeCount += count;
             boolean wasFullRelight = fullRelight;
-            int previousChanges = this.changes.size();
+            int previousReservations = reservations;
             fullRelight = true;
             this.changes.clear();
-            return wasFullRelight ? 0 : Math.max(1, previousChanges == 0 ? 1 : previousChanges);
+            int queued = wasFullRelight || previousReservations > 0 ? 0 : 1;
+            reservations += queued;
+            return queued;
         }
 
         private synchronized boolean hasFullRelight() {
             return fullRelight;
         }
 
-        private synchronized RuntimeRegionBatch drain() {
+        private synchronized DrainedRegion drain() {
+            int drainedReservations = reservations;
+            reservations = 0;
             if (fullRelight) {
                 RuntimeRegionBatch batch = RuntimeRegionBatch.fullRelight(originalChangeCount);
                 fullRelight = false;
                 originalChangeCount = 0L;
                 changes.clear();
-                return batch;
+                return new DrainedRegion(batch, drainedReservations);
             }
             ArrayList<BlockChangeRecord> drained = new ArrayList<>(changes.values());
             changes.clear();
+            long drainedOriginalChangeCount = originalChangeCount;
             originalChangeCount = 0L;
-            return RuntimeRegionBatch.incremental(drained);
+            return new DrainedRegion(new RuntimeRegionBatch(drained, false, drainedOriginalChangeCount), drainedReservations);
         }
 
         private static long blockKey(int x, int y, int z) {

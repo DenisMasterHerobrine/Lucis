@@ -8,6 +8,7 @@ import dev.denismasterherobrine.lucis.light.runtime.RuntimeLightChangeBuffer;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LucisSkyLightEngineTest {
     private static final int WIDTH = 48;
@@ -24,6 +25,7 @@ class LucisSkyLightEngineTest {
         RegionLightData data = newRegionData();
         LucisSkyLightEngine engine = new LucisSkyLightEngine();
         engine.compute(data);
+        data.clearDirty();
 
         RuntimeLightChangeBuffer changes = applyRoofOpacity(data, LucisConstants.MAX_LIGHT);
 
@@ -31,6 +33,7 @@ class LucisSkyLightEngineTest {
 
         assertEquals(0, sky(data, CENTER, ROOF_Y - 1, CENTER));
         assertEquals(0, sky(data, CENTER, DEEP_Y, CENTER));
+        assertTrue(data.dirtySkySections.get(data.sectionLinearIndexLocal(CENTER, DEEP_Y, CENTER)));
     }
 
     @Test
@@ -44,7 +47,44 @@ class LucisSkyLightEngineTest {
         engine.applyRuntimeChanges(data, changes);
 
         assertEquals(14, sky(data, CENTER, ROOF_Y, CENTER));
-        assertEquals(14, sky(data, CENTER, DEEP_Y, CENTER));
+        assertEquals(13, sky(data, CENTER, ROOF_Y - 1, CENTER));
+        assertEquals(0, sky(data, CENTER, DEEP_Y, CENTER));
+    }
+
+    @Test
+    void computeStopsDirectSkySourceAtLeavesLikeVanilla() {
+        RegionLightData data = newRegionData();
+        for (int z = CENTER - 2; z <= CENTER + 2; z++) {
+            for (int x = CENTER - 2; x <= CENTER + 2; x++) {
+                data.opacity[data.localIndex(x, LEAF_Y, z)] = 1;
+            }
+        }
+
+        new LucisSkyLightEngine().compute(data);
+
+        assertEquals(15, sky(data, CENTER, LEAF_Y + 1, CENTER));
+        assertEquals(14, sky(data, CENTER, LEAF_Y, CENTER));
+        assertEquals(13, sky(data, CENTER, LEAF_Y - 1, CENTER));
+        assertEquals(12, sky(data, CENTER, LEAF_Y - 2, CENTER));
+    }
+
+    @Test
+    void runtimeGlassMaterialChangePublishesSkySectionWhenLevelIsUnchanged() {
+        RegionLightData data = newRegionData();
+        LucisSkyLightEngine engine = new LucisSkyLightEngine();
+        engine.compute(data);
+        data.clearDirty();
+
+        int index = data.localIndex(CENTER, LEAF_Y, CENTER);
+        RuntimeLightChangeBuffer changes = new RuntimeLightChangeBuffer(1);
+        changes.addMaterial(index,
+                LightMaterial.pack(0, 0, LightMaterial.FLAG_AIR | LightMaterial.FLAG_SKYLIGHT_DOWN),
+                LightMaterial.pack(0, 0, LightMaterial.FLAG_GLASS | LightMaterial.FLAG_SKYLIGHT_DOWN));
+
+        engine.applyRuntimeChanges(data, changes);
+
+        assertEquals(15, sky(data, CENTER, LEAF_Y, CENTER));
+        assertTrue(data.dirtySkySections.get(data.sectionLinearIndexLocal(CENTER, LEAF_Y, CENTER)));
     }
 
     @Test
@@ -71,6 +111,81 @@ class LucisSkyLightEngineTest {
 
         assertEquals(0, sky(data, 21, LEAF_Y, 21));
         assertEquals(0, sky(data, 21, DEEP_Y, 21));
+        assertEquals(0, sky(data, 35, LEAF_Y, 35));
+        assertEquals(0, sky(data, 35, DEEP_Y, 35));
+    }
+
+    @Test
+    void runtimeLargeRoofSliceClearsDeepLeafSections() {
+        int width = 16;
+        int height = 128;
+        int roofY = 112;
+        int leafY = 24;
+        int deepY = 10;
+        RegionLightData data = new RegionLightData(new RegionBounds(0, 0, 1, 0, width, width,
+                0, height, 0, height / 16, height, width * width, width * width * height));
+        for (int z = 0; z < width; z++) {
+            for (int x = 0; x < width; x++) {
+                data.opacity[data.localIndex(x, leafY, z)] = 1;
+            }
+        }
+
+        LucisSkyLightEngine engine = new LucisSkyLightEngine();
+        engine.compute(data);
+        RuntimeLightChangeBuffer changes = new RuntimeLightChangeBuffer(width * width);
+        for (int z = 0; z < width; z++) {
+            for (int x = 0; x < width; x++) {
+                int index = data.localIndex(x, roofY, z);
+                data.opacity[index] = LucisConstants.MAX_LIGHT_BYTE;
+                changes.addLight(index, LightMaterial.packLight(0, 0),
+                        LightMaterial.packLight(LucisConstants.MAX_LIGHT, 0));
+            }
+        }
+
+        engine.applyRuntimeChanges(data, changes);
+
+        assertEquals(0, sky(data, 8, leafY, 8));
+        assertEquals(0, sky(data, 8, deepY, 8));
+    }
+
+    @Test
+    void runtimeFullDepthRepairClearsRegionBeyondSeedRadius() {
+        int width = 64;
+        int height = 64;
+        int roofY = 48;
+        int leafY = 18;
+        int deepY = 8;
+        int roofMin = 8;
+        int roofMax = 55;
+        RegionLightData data = new RegionLightData(new RegionBounds(0, 0, 4, 0, width, width,
+                0, height, 0, height / 16, height, width * width, width * width * height));
+        for (int z = roofMin; z <= roofMax; z++) {
+            for (int x = roofMin; x <= roofMax; x++) {
+                data.opacity[data.localIndex(x, leafY, z)] = 1;
+            }
+        }
+
+        LucisSkyLightEngine engine = new LucisSkyLightEngine();
+        engine.compute(data);
+        for (int z = roofMin; z <= roofMax; z++) {
+            for (int x = roofMin; x <= roofMax; x++) {
+                data.opacity[data.localIndex(x, roofY, z)] = LucisConstants.MAX_LIGHT_BYTE;
+            }
+        }
+
+        RuntimeLightChangeBuffer changes = new RuntimeLightChangeBuffer(4);
+        for (int z = 31; z <= 32; z++) {
+            for (int x = 31; x <= 32; x++) {
+                int index = data.localIndex(x, roofY, z);
+                changes.addLight(index, LightMaterial.packLight(0, 0),
+                        LightMaterial.packLight(LucisConstants.MAX_LIGHT, 0));
+            }
+        }
+
+        engine.applyRuntimeChanges(data, changes);
+
+        assertEquals(0, sky(data, 52, leafY, 52));
+        assertEquals(0, sky(data, 52, deepY, 52));
     }
 
     private static RegionLightData newRegionData() {

@@ -1,9 +1,11 @@
 package dev.denismasterherobrine.lucis.light;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.neoforged.neoforge.common.Tags;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -23,33 +25,65 @@ public final class LightMaterialCache {
         int id = Block.getId(state);
         int cached = (int) INT_ARRAY.getOpaque(lightCache, id);
         if (cached != UNCACHED) {
-            return unpackCachedLight(level, state, pos, cached);
+            return unpackCachedMaterial(level, state, pos, cached);
         }
 
         int emission = clampLight(state.getLightEmission());
         if (state.useShapeForLightOcclusion()) {
             INT_ARRAY.setOpaque(lightCache, id, encodeDynamic(emission));
-            return LightMaterial.packLight(clampLight(state.getLightBlock(level, pos)), emission);
+            return material(level, state, pos, emission);
         }
 
-        int packed = LightMaterial.packLight(clampLight(state.getLightBlock(level, pos)), emission);
+        int packed = material(level, state, pos, emission);
         INT_ARRAY.setOpaque(lightCache, id, encodeStatic(packed));
         return packed;
     }
 
-    private int unpackCachedLight(BlockGetter level, BlockState state, BlockPos pos, int cached) {
+    private int unpackCachedMaterial(BlockGetter level, BlockState state, BlockPos pos, int cached) {
         if ((cached & DYNAMIC_OPACITY) != 0) {
-            return LightMaterial.packLight(clampLight(state.getLightBlock(level, pos)), dynamicEmission(cached));
+            return material(level, state, pos, dynamicEmission(cached));
         }
         return decodeStatic(cached);
     }
 
+    private static int material(BlockGetter level, BlockState state, BlockPos pos, int emission) {
+        boolean foliage = state.is(BlockTags.LEAVES);
+        boolean glass = isTransparentGlass(state);
+        int opacity = glass ? 0 : clampLight(state.getLightBlock(level, pos));
+        if (foliage && opacity == 0) {
+            opacity = 1;
+        }
+
+        int flags = 0;
+        if (state.isAir()) {
+            flags |= LightMaterial.FLAG_AIR;
+        }
+        if (glass || state.propagatesSkylightDown(level, pos)) {
+            flags |= LightMaterial.FLAG_SKYLIGHT_DOWN;
+        }
+        if (state.canOcclude()) {
+            flags |= LightMaterial.FLAG_OCCLUDES;
+        }
+        if (glass) {
+            flags |= LightMaterial.FLAG_GLASS;
+        }
+        if (foliage) {
+            flags |= LightMaterial.FLAG_FOLIAGE;
+        }
+        return LightMaterial.pack(opacity, emission, flags);
+    }
+
+    private static boolean isTransparentGlass(BlockState state) {
+        return (state.is(Tags.Blocks.GLASS_BLOCKS) || state.is(Tags.Blocks.GLASS_PANES))
+                && !state.is(Tags.Blocks.GLASS_BLOCKS_TINTED);
+    }
+
     private static int encodeStatic(int packed) {
-        return (packed & LightMaterial.LIGHT_MASK) + 1;
+        return (packed & LightMaterial.MATERIAL_MASK) + 1;
     }
 
     private static int decodeStatic(int cached) {
-        return (cached - 1) & LightMaterial.LIGHT_MASK;
+        return (cached - 1) & LightMaterial.MATERIAL_MASK;
     }
 
     private static int encodeDynamic(int emission) {

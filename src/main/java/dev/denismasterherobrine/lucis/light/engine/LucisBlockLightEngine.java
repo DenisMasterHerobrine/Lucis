@@ -151,7 +151,7 @@ public final class LucisBlockLightEngine {
                 || nextY < 0 || nextY >= data.bounds.heightBlocks()) {
             return;
         }
-        int candidate = light - (data.opacity[nextIndex] & 0xF);
+        int candidate = light - propagationCost(data.opacity[nextIndex] & 0xF);
         if (candidate > (data.blockLight[nextIndex] & 0xF)) {
             setNeighborLight(data, candidate, nextX, nextY, nextZ, nextIndex);
         }
@@ -277,7 +277,7 @@ public final class LucisBlockLightEngine {
     }
 
     private void spreadTo(RegionLightData data, IntBucketQueue queue, int current, int nextX, int nextY, int nextZ, int nextIndex) {
-        int candidate = current - 1 - (data.opacity[nextIndex] & 0xF);
+        int candidate = current - propagationCost(data.opacity[nextIndex] & 0xF);
         if (candidate > (data.blockLight[nextIndex] & 0xF)) {
             data.blockLight[nextIndex] = (byte) candidate;
             data.markDirtyBlockLocal(nextX, nextY, nextZ);
@@ -285,6 +285,10 @@ public final class LucisBlockLightEngine {
                 queue.enqueue(candidate, nextIndex);
             }
         }
+    }
+
+    private static int propagationCost(int opacity) {
+        return opacity <= 0 ? 1 : opacity;
     }
 
     private static final class Queues {

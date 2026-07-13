@@ -1,15 +1,22 @@
 package dev.denismasterherobrine.lucis.light;
 
 public final class LightMaterial {
-    public static final byte FLAG_AIR = 1;
-    public static final byte FLAG_SKYLIGHT_DOWN = 1 << 1;
-    public static final byte FLAG_OCCLUDES = 1 << 2;
-
-    public static final int LIGHT_MASK = 0xFF;
-
     private static final int OPACITY_MASK = 0xF;
     private static final int EMISSION_SHIFT = 4;
     private static final int FLAGS_SHIFT = 8;
+
+    public static final byte FLAG_AIR = 1;
+    public static final byte FLAG_SKYLIGHT_DOWN = 1 << 1;
+    public static final byte FLAG_OCCLUDES = 1 << 2;
+    public static final byte FLAG_GLASS = 1 << 3;
+    public static final byte FLAG_FOLIAGE = 1 << 4;
+
+    public static final int LIGHT_MASK = 0xFF;
+    public static final int MATERIAL_MASK = 0xFFFF;
+    private static final int OPACITY_LIGHT_MASK = OPACITY_MASK;
+    private static final int SKY_RELEVANT_FLAGS = FLAG_SKYLIGHT_DOWN | FLAG_GLASS | FLAG_FOLIAGE;
+    public static final int SKY_RELEVANT_MASK = OPACITY_LIGHT_MASK | (SKY_RELEVANT_FLAGS << FLAGS_SHIFT);
+    public static final int RUNTIME_RELEVANT_MASK = LIGHT_MASK | (SKY_RELEVANT_FLAGS << FLAGS_SHIFT);
 
     private LightMaterial() {
     }
@@ -44,6 +51,10 @@ public final class LightMaterial {
 
     public static boolean hasSameLight(int first, int second) {
         return ((first ^ second) & LIGHT_MASK) == 0;
+    }
+
+    public static boolean hasSameRuntimeProperties(int first, int second) {
+        return ((first ^ second) & RUNTIME_RELEVANT_MASK) == 0;
     }
 
     public static boolean isAir(int packed) {

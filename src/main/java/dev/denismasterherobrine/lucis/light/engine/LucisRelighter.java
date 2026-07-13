@@ -164,15 +164,17 @@ public final class LucisRelighter {
         LucisBenchmarkSupport.recordSince("lucis.stage.runtime.incremental.materials", startedAt);
         startedAt = LucisBenchmarkSupport.start();
         boolean opacityChanged = runtimeChanges.hasOpacityChange();
+        boolean skyChanged = runtimeChanges.hasSkyChange();
         LucisBenchmarkSupport.count(opacityChanged ? "lucis.runtime.opacity.changed" : "lucis.runtime.opacity.unchanged");
-        if (enableSky && opacityChanged) {
+        LucisBenchmarkSupport.count(skyChanged ? "lucis.runtime.sky.changed" : "lucis.runtime.sky.unchanged");
+        if (enableSky && skyChanged) {
             skyLightEngine.applyRuntimeChanges(data, runtimeChanges);
         }
         LucisBenchmarkSupport.recordSince("lucis.stage.runtime.incremental.sky", startedAt);
         startedAt = LucisBenchmarkSupport.start();
         boolean emissionChanged = runtimeChanges.hasEmissionChange();
         LucisBenchmarkSupport.count(emissionChanged ? "lucis.runtime.emission.changed" : "lucis.runtime.emission.unchanged");
-        if (enableBlock && emissionChanged) {
+        if (enableBlock && (emissionChanged || opacityChanged)) {
             if (runtimeChanges.size() > 1 && runtimeChanges.blockFastEligible()) {
                 LucisBenchmarkSupport.count("lucis.runtime.block.fastBatch");
                 blockLightEngine.applyRuntimeChangesFast(data, runtimeChanges);
@@ -211,7 +213,7 @@ public final class LucisRelighter {
             pos.set(change.x(), change.y(), change.z());
             int oldMaterial = materialCache.lookupLight(level, change.oldState(), pos);
             int newMaterial = materialCache.lookupLight(level, change.newState(), pos);
-            if (LightMaterial.hasSameLight(oldMaterial, newMaterial)) {
+            if (LightMaterial.hasSameRuntimeProperties(oldMaterial, newMaterial)) {
                 continue;
             }
             runtimeChanges.add(data.localIndex(localX, localY, localZ), oldMaterial, newMaterial);
