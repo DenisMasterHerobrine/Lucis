@@ -174,7 +174,8 @@ public final class LucisRelighter {
         startedAt = LucisBenchmarkSupport.start();
         boolean emissionChanged = runtimeChanges.hasEmissionChange();
         LucisBenchmarkSupport.count(emissionChanged ? "lucis.runtime.emission.changed" : "lucis.runtime.emission.unchanged");
-        if (enableBlock && (emissionChanged || opacityChanged)) {
+        boolean blockAffected = emissionChanged || (opacityChanged && hasNearbyBlockLight(data, runtimeChanges));
+        if (enableBlock && blockAffected) {
             if (runtimeChanges.size() > 1 && runtimeChanges.blockFastEligible()) {
                 LucisBenchmarkSupport.count("lucis.runtime.block.fastBatch");
                 blockLightEngine.applyRuntimeChangesFast(data, runtimeChanges);
@@ -182,7 +183,9 @@ public final class LucisRelighter {
                 blockLightEngine.applyRuntimeChanges(data, runtimeChanges);
             }
         } else if (enableBlock) {
-            LucisBenchmarkSupport.count("lucis.runtime.block.skipped.noEmissionChange");
+            LucisBenchmarkSupport.count(blockAffected
+                    ? "lucis.runtime.block.skipped.disabled"
+                    : "lucis.runtime.block.skipped.noAffectedLight");
         }
         LucisBenchmarkSupport.recordSince("lucis.stage.runtime.incremental.block", startedAt);
         startedAt = LucisBenchmarkSupport.start();
@@ -228,6 +231,34 @@ public final class LucisRelighter {
             data.opacity[index] = (byte) (newLight & 0xF);
             data.emission[index] = (byte) ((newLight >>> 4) & 0xF);
         }
+    }
+
+    private boolean hasNearbyBlockLight(RegionLightData data, RuntimeLightChangeBuffer changes) {
+        int width = data.bounds.widthBlocks();
+        int depth = data.bounds.depthBlocks();
+        int height = data.bounds.heightBlocks();
+        int area = data.bounds.area();
+        for (int i = 0; i < changes.size(); i++) {
+            long change = changes.get(i);
+            if (RuntimeLightChangeBuffer.oldOpacity(change) == RuntimeLightChangeBuffer.newOpacity(change)) {
+                continue;
+            }
+            int index = RuntimeLightChangeBuffer.localIndex(change);
+            if ((data.blockLight[index] & 0xF) != 0) {
+                return true;
+            }
+            int y = index / area;
+            int rem = index - y * area;
+            int z = rem / width;
+            int x = rem - z * width;
+            if (x + 1 < width && (data.blockLight[index + data.offsetPosX] & 0xF) != 0) return true;
+            if (x > 0 && (data.blockLight[index + data.offsetNegX] & 0xF) != 0) return true;
+            if (z + 1 < depth && (data.blockLight[index + data.offsetPosZ] & 0xF) != 0) return true;
+            if (z > 0 && (data.blockLight[index + data.offsetNegZ] & 0xF) != 0) return true;
+            if (y + 1 < height && (data.blockLight[index + data.offsetPosY] & 0xF) != 0) return true;
+            if (y > 0 && (data.blockLight[index + data.offsetNegY] & 0xF) != 0) return true;
+        }
+        return false;
     }
 
     private void countPublished(String prefix, List<LucisRelightResult> results) {

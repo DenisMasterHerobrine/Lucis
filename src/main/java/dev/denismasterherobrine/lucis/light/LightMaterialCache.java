@@ -16,6 +16,7 @@ public final class LightMaterialCache {
     private static final int DYNAMIC_OPACITY = 1 << 31;
     private static final int ENCODED_DYNAMIC_MARKER = 1;
     private static final int DYNAMIC_EMISSION_SHIFT = 1;
+    private static final int DYNAMIC_FLAGS_SHIFT = 5;
 
     // each slot publishes one self-contained int
     // a stale/uncached read can only cause a duplicate recompute, not wrong light data
@@ -29,48 +30,54 @@ public final class LightMaterialCache {
         }
 
         int emission = clampLight(state.getLightEmission());
+        int staticFlags = staticFlags(state);
         if (state.useShapeForLightOcclusion()) {
-            INT_ARRAY.setOpaque(lightCache, id, encodeDynamic(emission));
-            return material(level, state, pos, emission);
+            INT_ARRAY.setOpaque(lightCache, id, encodeDynamic(emission, staticFlags));
+            return material(level, state, pos, emission, staticFlags);
         }
 
-        int packed = material(level, state, pos, emission);
+        int packed = material(level, state, pos, emission, staticFlags);
         INT_ARRAY.setOpaque(lightCache, id, encodeStatic(packed));
         return packed;
     }
 
     private int unpackCachedMaterial(BlockGetter level, BlockState state, BlockPos pos, int cached) {
         if ((cached & DYNAMIC_OPACITY) != 0) {
-            return material(level, state, pos, dynamicEmission(cached));
+            return material(level, state, pos, dynamicEmission(cached), dynamicFlags(cached));
         }
         return decodeStatic(cached);
     }
 
-    private static int material(BlockGetter level, BlockState state, BlockPos pos, int emission) {
-        boolean foliage = state.is(BlockTags.LEAVES);
-        boolean glass = isTransparentGlass(state);
+    private static int material(BlockGetter level, BlockState state, BlockPos pos, int emission, int staticFlags) {
+        boolean foliage = (staticFlags & LightMaterial.FLAG_FOLIAGE) != 0;
+        boolean glass = (staticFlags & LightMaterial.FLAG_GLASS) != 0;
         int opacity = glass ? 0 : clampLight(state.getLightBlock(level, pos));
         if (foliage && opacity == 0) {
             opacity = 1;
         }
 
+        int flags = staticFlags;
+        if (glass || state.propagatesSkylightDown(level, pos)) {
+            flags |= LightMaterial.FLAG_SKYLIGHT_DOWN;
+        }
+        return LightMaterial.pack(opacity, emission, flags);
+    }
+
+    private static int staticFlags(BlockState state) {
         int flags = 0;
         if (state.isAir()) {
             flags |= LightMaterial.FLAG_AIR;
         }
-        if (glass || state.propagatesSkylightDown(level, pos)) {
-            flags |= LightMaterial.FLAG_SKYLIGHT_DOWN;
-        }
         if (state.canOcclude()) {
             flags |= LightMaterial.FLAG_OCCLUDES;
         }
-        if (glass) {
-            flags |= LightMaterial.FLAG_GLASS;
+        if (isTransparentGlass(state)) {
+            flags |= LightMaterial.FLAG_GLASS | LightMaterial.FLAG_SKYLIGHT_DOWN;
         }
-        if (foliage) {
+        if (state.is(BlockTags.LEAVES)) {
             flags |= LightMaterial.FLAG_FOLIAGE;
         }
-        return LightMaterial.pack(opacity, emission, flags);
+        return flags;
     }
 
     private static boolean isTransparentGlass(BlockState state) {
@@ -86,12 +93,18 @@ public final class LightMaterialCache {
         return (cached - 1) & LightMaterial.MATERIAL_MASK;
     }
 
-    private static int encodeDynamic(int emission) {
-        return DYNAMIC_OPACITY | ENCODED_DYNAMIC_MARKER | ((emission & 0xF) << DYNAMIC_EMISSION_SHIFT);
+    private static int encodeDynamic(int emission, int flags) {
+        return DYNAMIC_OPACITY | ENCODED_DYNAMIC_MARKER
+                | ((emission & 0xF) << DYNAMIC_EMISSION_SHIFT)
+                | ((flags & 0xFF) << DYNAMIC_FLAGS_SHIFT);
     }
 
     private static int dynamicEmission(int cached) {
         return (cached >>> DYNAMIC_EMISSION_SHIFT) & 0xF;
+    }
+
+    private static int dynamicFlags(int cached) {
+        return (cached >>> DYNAMIC_FLAGS_SHIFT) & 0xFF;
     }
 
     private static int clampLight(int light) {
