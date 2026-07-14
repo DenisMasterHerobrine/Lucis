@@ -35,9 +35,20 @@ public final class LucisPublishEngine {
     }
 
     public List<LucisRelightResult> publishRegion(RegionLightData data) {
-        List<LucisRelightResult> results = new ArrayList<>(data.bounds.regionChunks() * data.bounds.regionChunks());
-        for (int chunkZ = 0; chunkZ < data.bounds.regionChunks(); chunkZ++) {
-            for (int chunkX = 0; chunkX < data.bounds.regionChunks(); chunkX++) {
+        int regionChunks = data.bounds.regionChunks();
+        List<LucisRelightResult> results = new ArrayList<>(regionChunks * regionChunks);
+        if (regionChunks == 1) {
+            LucisRelightResult result = publishChunk(new ChunkPos(data.bounds.originChunkX(), data.bounds.originChunkZ()), data);
+            if (!result.sections().isEmpty()) {
+                results.add(result);
+            }
+            return results;
+        }
+        for (int chunkZ = 0; chunkZ < regionChunks; chunkZ++) {
+            for (int chunkX = 0; chunkX < regionChunks; chunkX++) {
+                if (!hasDirtySections(data, chunkX, chunkZ)) {
+                    continue;
+                }
                 ChunkPos chunkPos = new ChunkPos(data.bounds.originChunkX() + chunkX, data.bounds.originChunkZ() + chunkZ);
                 LucisRelightResult result = publishChunk(chunkPos, data);
                 if (!result.sections().isEmpty()) {
@@ -46,6 +57,20 @@ public final class LucisPublishEngine {
             }
         }
         return results;
+    }
+
+    private boolean hasDirtySections(RegionLightData data, int coreChunkX, int coreChunkZ) {
+        int localChunkX = data.coreLocalChunkStart + coreChunkX;
+        int localChunkZ = data.coreLocalChunkStart + coreChunkZ;
+        int sectionIndexBase = localChunkX + localChunkZ * data.sectionWidth;
+        int sectionsPerPlane = data.sectionsPerPlane;
+        for (int sectionY = 0; sectionY < data.bounds.sectionCount(); sectionY++) {
+            int linear = sectionIndexBase + sectionY * sectionsPerPlane;
+            if (data.dirtyBlockSections.get(linear) || data.dirtySkySections.get(linear)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void collect(RegionLightData data, ChunkPos chunkPos, LightLayer layer, boolean sky, BitSet dirtyMask, List<LucisSectionData> out) {
