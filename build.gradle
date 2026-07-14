@@ -78,12 +78,22 @@ neoForge {
             runConfig.systemProperty 'lucis.benchmark.output', providers.gradleProperty('benchmarkOutput').getOrElse(benchmarkDefaultOutput)
             runConfig.systemProperty 'lucis.benchmark.radiusChunks', providers.gradleProperty('benchmarkRadiusChunks').getOrElse('3')
             runConfig.systemProperty 'lucis.benchmark.chunkSpan', providers.gradleProperty('benchmarkChunkSpan').getOrElse('0')
+            runConfig.systemProperty 'lucis.benchmark.structureSize', providers.gradleProperty('benchmarkStructureSize').getOrElse('16')
+            runConfig.systemProperty 'lucis.benchmark.structureWidth', providers.gradleProperty('benchmarkStructureWidth').getOrElse(providers.gradleProperty('benchmarkStructureSize').getOrElse('16'))
+            runConfig.systemProperty 'lucis.benchmark.structureHeight', providers.gradleProperty('benchmarkStructureHeight').getOrElse(providers.gradleProperty('benchmarkStructureSize').getOrElse('16'))
+            runConfig.systemProperty 'lucis.benchmark.structureDepth', providers.gradleProperty('benchmarkStructureDepth').getOrElse(providers.gradleProperty('benchmarkStructureSize').getOrElse('16'))
+            runConfig.systemProperty 'lucis.benchmark.maxApplyBlocks', providers.gradleProperty('benchmarkMaxApplyBlocks').getOrElse('0')
+            runConfig.systemProperty 'lucis.benchmark.skipPreparation', providers.gradleProperty('benchmarkSkipPreparation').getOrElse('false')
+            runConfig.systemProperty 'lucis.benchmark.lightOnly', providers.gradleProperty('benchmarkLightOnly').getOrElse('false')
+            runConfig.systemProperty 'lucis.benchmark.trackRegionAnchorsOnly', providers.gradleProperty('benchmarkTrackRegionAnchorsOnly').getOrElse('false')
+            runConfig.systemProperty 'lucis.benchmark.prepareMaxTicks', providers.gradleProperty('benchmarkPrepareMaxTicks').getOrElse('0')
+            runConfig.systemProperty 'lucis.benchmark.strictDrainBeforeMeasure', providers.gradleProperty('benchmarkStrictDrainBeforeMeasure').getOrElse('true')
+            runConfig.systemProperty 'lucis.benchmark.waitWorldgenDuringMeasured', providers.gradleProperty('benchmarkWaitWorldgenDuringMeasured').getOrElse('false')
             runConfig.systemProperty 'lucis.benchmark.originX', providers.gradleProperty('benchmarkOriginX').getOrElse('0')
             runConfig.systemProperty 'lucis.benchmark.originZ', providers.gradleProperty('benchmarkOriginZ').getOrElse('0')
             runConfig.systemProperty 'lucis.benchmark.y', providers.gradleProperty('benchmarkY').getOrElse('80')
             runConfig.systemProperty 'lucis.benchmark.passes', providers.gradleProperty('benchmarkPasses').getOrElse('6')
             runConfig.systemProperty 'lucis.benchmark.warmupPasses', providers.gradleProperty('benchmarkWarmupPasses').getOrElse('2')
-            runConfig.systemProperty 'lucis.benchmark.settleTicks', providers.gradleProperty('benchmarkSettleTicks').getOrElse('20')
             runConfig.systemProperty 'lucis.benchmark.maxWaitNanos', providers.gradleProperty('benchmarkMaxWaitNanos').getOrElse('120000000000')
             runConfig.systemProperty 'lucis.enabled', String.valueOf(lucisEnabled)
             runConfig.systemProperty 'lucis.regionChunks', '1'
@@ -92,6 +102,9 @@ neoForge {
             runConfig.systemProperty 'lucis.maxCachedRegions', providers.gradleProperty('lucisMaxCachedRegions').getOrElse('128')
             runConfig.systemProperty 'lucis.worldgenWorkers', providers.gradleProperty('lucisWorldgenWorkers').getOrElse('0')
             runConfig.systemProperty 'lucis.runtimeWorkers', providers.gradleProperty('lucisRuntimeWorkers').getOrElse('0')
+            runConfig.systemProperty 'lucis.runtimeRegionChunks', providers.gradleProperty('lucisRuntimeRegionChunks').getOrElse('1')
+            runConfig.systemProperty 'lucis.runtime.fullRelightChangeThreshold', providers.gradleProperty('lucisRuntimeFullRelightChangeThreshold').getOrElse('2048')
+            runConfig.systemProperty 'lucis.runtime.fullRelightCoalesceNanos', providers.gradleProperty('lucisRuntimeFullRelightCoalesceNanos').getOrElse('5000000000')
             runConfig.systemProperty 'forge.logging.console.level', 'info'
             runConfig.jvmArgument '-Xmx2G'
         }
@@ -351,3 +364,4 @@ idea {
         downloadJavadoc = true
     }
 }
+

@@ -59,17 +59,17 @@ public final class LucisConfig {
 
     public static final ModConfigSpec SPEC = BUILDER.build();
 
-    public static volatile boolean enabled = true;
-    public static volatile int regionChunks = 1;
-    public static volatile int haloChunks = 0;
-    public static volatile int maxBatchChunks = 64;
-    public static volatile int maxCachedRegions = 128;
-    public static volatile boolean enableWorldgen = true;
-    public static volatile boolean enableRuntime = true;
-    public static volatile boolean enableSky = true;
-    public static volatile boolean enableBlock = true;
-    public static volatile boolean verboseLogging = false;
-    public static volatile boolean debug = false;
+    public static boolean enabled = true;
+    public static int regionChunks = 1;
+    public static int haloChunks = 0;
+    public static int maxBatchChunks = 64;
+    public static int maxCachedRegions = 128;
+    public static boolean enableWorldgen = true;
+    public static boolean enableRuntime = true;
+    public static boolean enableSky = true;
+    public static boolean enableBlock = true;
+    public static boolean verboseLogging = false;
+    public static boolean debug = false;
 
     private LucisConfig() {
     }
