@@ -178,7 +178,7 @@ public final class LucisRelighter {
         if (enableBlock && blockAffected) {
             if (runtimeChanges.size() > 1 && runtimeChanges.blockFastEligible()) {
                 LucisBenchmarkSupport.count("lucis.runtime.block.fastBatch");
-                blockLightEngine.applyRuntimeChangesFast(data, runtimeChanges);
+                blockLightEngine.applyRuntimeChangesFastEligible(data, runtimeChanges);
             } else {
                 blockLightEngine.applyRuntimeChanges(data, runtimeChanges);
             }

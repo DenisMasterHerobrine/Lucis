@@ -93,15 +93,15 @@ public final class LucisBlockLightEngine {
     }
 
     public void applyRuntimeChangesFast(RegionLightData data, RuntimeLightChangeBuffer changes) {
-        for (int i = 0; i < changes.size(); i++) {
-            long change = changes.get(i);
-            if (RuntimeLightChangeBuffer.newEmission(change) < RuntimeLightChangeBuffer.oldEmission(change)
-                    || RuntimeLightChangeBuffer.newOpacity(change) != RuntimeLightChangeBuffer.oldOpacity(change)) {
-                applyRuntimeChanges(data, changes);
-                return;
-            }
+        if (!changes.blockFastEligible()) {
+            applyRuntimeChanges(data, changes);
+            return;
         }
 
+        applyRuntimeChangesFastEligible(data, changes);
+    }
+
+    public void applyRuntimeChangesFastEligible(RegionLightData data, RuntimeLightChangeBuffer changes) {
         IntBucketQueue queue = queues.get().lightQueue;
         queue.clear();
         for (int i = 0; i < changes.size(); i++) {
