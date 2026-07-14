@@ -2,6 +2,7 @@ package dev.denismasterherobrine.lucis.light.engine;
 
 import dev.denismasterherobrine.lucis.light.LightMaterial;
 import dev.denismasterherobrine.lucis.light.LightMaterialCache;
+import dev.denismasterherobrine.lucis.light.region.RegionChunkSnapshot;
 import dev.denismasterherobrine.lucis.light.region.RegionBounds;
 import dev.denismasterherobrine.lucis.light.region.RegionLightData;
 import dev.denismasterherobrine.lucis.light.region.RuntimeRegionState;
@@ -41,6 +42,29 @@ public final class LucisRelighter {
         long startedAt = LucisBenchmarkSupport.start();
         RegionLightData data = extractor.extract(getter, bounds, chunk);
         LucisBenchmarkSupport.recordSince("lucis.stage.worldgen.extract", startedAt);
+        startedAt = LucisBenchmarkSupport.start();
+        if (enableSky) {
+            skyLightEngine.compute(data);
+        }
+        LucisBenchmarkSupport.recordSince("lucis.stage.worldgen.sky", startedAt);
+        startedAt = LucisBenchmarkSupport.start();
+        if (enableBlock) {
+            blockLightEngine.compute(data);
+        }
+        LucisBenchmarkSupport.recordSince("lucis.stage.worldgen.block", startedAt);
+        startedAt = LucisBenchmarkSupport.start();
+        LucisRelightResult result = publishEngine.publishChunk(chunkPos, data);
+        LucisBenchmarkSupport.recordSince("lucis.stage.worldgen.publish", startedAt);
+        LucisBenchmarkSupport.count("lucis.worldgen.sections", result.sections().size());
+        return result;
+    }
+
+    public LucisRelightResult relightChunkSnapshot(ChunkPos chunkPos, RegionChunkSnapshot snapshot,
+                                                  boolean enableSky, boolean enableBlock) {
+        long startedAt = LucisBenchmarkSupport.start();
+        RegionLightData data = new RegionLightData(snapshot.bounds());
+        extractor.populateFromSnapshot(snapshot, data, snapshot);
+        LucisBenchmarkSupport.recordSince("lucis.stage.worldgen.extract_snapshot", startedAt);
         startedAt = LucisBenchmarkSupport.start();
         if (enableSky) {
             skyLightEngine.compute(data);
