@@ -1,78 +1,23 @@
 plugins {
-    id 'java-library'
-    id 'maven-publish'
+    id 'multiloader-loader'
     id 'net.neoforged.moddev'
-    id 'idea'
-}
-
-def benchmarkAllowScalableLux = providers.gradleProperty('benchmarkAllowScalableLux')
-        .map { it.toBoolean() }
-        .getOrElse(false)
-def scalableLuxDependencyType = benchmarkAllowScalableLux ? 'discouraged' : 'incompatible'
-def benchmarkProperty = { String name, String fallback ->
-    providers.gradleProperty(name).getOrElse(fallback)
-}
-def configureBenchmarkRun = { runConfig, String runDirectory, String mode, boolean lucisEnabled, String expectedMod = '' ->
-    runConfig.server()
-    runConfig.gameDirectory = rootProject.file(runDirectory)
-    runConfig.programArgument '--nogui'
-    runConfig.systemProperty 'lucis.benchmark', 'true'
-    runConfig.systemProperty 'lucis.debug', 'true'
-    runConfig.systemProperty 'lucis.benchmark.mode', mode
-    runConfig.systemProperty 'lucis.benchmark.expectedMod', expectedMod
-    runConfig.systemProperty 'lucis.benchmark.workload', benchmarkProperty('benchmarkWorkload', 'block_toggle_dense')
-    runConfig.systemProperty 'lucis.benchmark.output', benchmarkProperty('benchmarkOutput', 'build/reports/lucis-light-benchmark.jsonl')
-    runConfig.systemProperty 'lucis.benchmark.radiusChunks', benchmarkProperty('benchmarkRadiusChunks', '3')
-    runConfig.systemProperty 'lucis.benchmark.chunkSpan', benchmarkProperty('benchmarkChunkSpan', '0')
-    runConfig.systemProperty 'lucis.benchmark.structureSize', benchmarkProperty('benchmarkStructureSize', '16')
-    runConfig.systemProperty 'lucis.benchmark.structureWidth', benchmarkProperty('benchmarkStructureWidth', benchmarkProperty('benchmarkStructureSize', '16'))
-    runConfig.systemProperty 'lucis.benchmark.structureHeight', benchmarkProperty('benchmarkStructureHeight', benchmarkProperty('benchmarkStructureSize', '16'))
-    runConfig.systemProperty 'lucis.benchmark.structureDepth', benchmarkProperty('benchmarkStructureDepth', benchmarkProperty('benchmarkStructureSize', '16'))
-    runConfig.systemProperty 'lucis.benchmark.maxApplyBlocks', benchmarkProperty('benchmarkMaxApplyBlocks', '0')
-    runConfig.systemProperty 'lucis.benchmark.skipPreparation', benchmarkProperty('benchmarkSkipPreparation', 'false')
-    runConfig.systemProperty 'lucis.benchmark.lightOnly', benchmarkProperty('benchmarkLightOnly', 'false')
-    runConfig.systemProperty 'lucis.benchmark.trackRegionAnchorsOnly', benchmarkProperty('benchmarkTrackRegionAnchorsOnly', 'false')
-    runConfig.systemProperty 'lucis.benchmark.prepareMaxTicks', benchmarkProperty('benchmarkPrepareMaxTicks', '0')
-    runConfig.systemProperty 'lucis.benchmark.originX', benchmarkProperty('benchmarkOriginX', '0')
-    runConfig.systemProperty 'lucis.benchmark.originZ', benchmarkProperty('benchmarkOriginZ', '0')
-    runConfig.systemProperty 'lucis.benchmark.y', benchmarkProperty('benchmarkY', '80')
-    runConfig.systemProperty 'lucis.benchmark.passes', benchmarkProperty('benchmarkPasses', '6')
-    runConfig.systemProperty 'lucis.benchmark.warmupPasses', benchmarkProperty('benchmarkWarmupPasses', '2')
-    runConfig.systemProperty 'lucis.benchmark.settleTicks', benchmarkProperty('benchmarkSettleTicks', '20')
-    runConfig.systemProperty 'lucis.benchmark.maxWaitNanos', benchmarkProperty('benchmarkMaxWaitNanos', '120000000000')
-    runConfig.systemProperty 'lucis.enabled', String.valueOf(lucisEnabled)
-    runConfig.systemProperty 'lucis.regionChunks', '1'
-    runConfig.systemProperty 'lucis.haloChunks', '0'
-    runConfig.systemProperty 'lucis.maxBatchChunks', benchmarkProperty('lucisMaxBatchChunks', '64')
-    runConfig.systemProperty 'lucis.maxCachedRegions', benchmarkProperty('lucisMaxCachedRegions', '128')
-    runConfig.systemProperty 'lucis.worldgenWorkers', benchmarkProperty('lucisWorldgenWorkers', '0')
-    runConfig.systemProperty 'lucis.runtimeWorkers', benchmarkProperty('lucisRuntimeWorkers', '0')
-    runConfig.systemProperty 'lucis.runtimeRegionChunks', benchmarkProperty('lucisRuntimeRegionChunks', '1')
-    runConfig.systemProperty 'lucis.runtime.fullRelightChangeThreshold', benchmarkProperty('lucisRuntimeFullRelightChangeThreshold', '2048')
-    runConfig.systemProperty 'lucis.runtime.fullRelightCoalesceNanos', benchmarkProperty('lucisRuntimeFullRelightCoalesceNanos', '5000000000')
-    runConfig.jvmArgument '-Xmx2G'
-}
-
-base {
-    archivesName = "${mod_id}-neoforge-${minecraft_version}"
-}
-
-java {
-    toolchain.languageVersion = JavaLanguageVersion.of(java_version.toInteger())
-    withSourcesJar()
-}
-
-evaluationDependsOn(':common')
-def commonProject = project(':common')
-
-sourceSets.main.resources {
-    srcDir('src/generated/resources')
 }
 
 neoForge {
-    version = project.neo_version
-
+    version = neoforge_version
+    def at = project(':common').file('src/main/resources/META-INF/accesstransformer.cfg')
+    if (at.exists()) {
+        accessTransformers.from(at.absolutePath)
+    }
+    parchment {
+        minecraftVersion = parchment_minecraft
+        mappingsVersion = parchment_version
+    }
     runs {
+        configureEach {
+            systemProperty('neoforge.enabledGameTestNamespaces', mod_id)
+            ideName = "NeoForge ${it.name.capitalize()} (${project.path})"
+        }
         client {
             client()
             gameDirectory = rootProject.file('run-neoforge-client')
@@ -82,78 +27,23 @@ neoForge {
             gameDirectory = rootProject.file('run-neoforge-server')
             programArgument '--nogui'
         }
-        benchmarkLucisServer {
-            configureBenchmarkRun(delegate, 'run-benchmark-1.21.1-neoforge-lucis', 'lucis', true)
-        }
-        benchmarkVanillaServer {
-            configureBenchmarkRun(delegate, 'run-benchmark-1.21.1-neoforge-vanilla', 'vanilla', false)
-        }
-        benchmarkScalableLuxServer {
-            configureBenchmarkRun(delegate, 'run-benchmark-1.21.1-neoforge-scalablelux', 'scalablelux', false, 'scalablelux')
-        }
         data {
             data()
             programArguments.addAll(
                     '--mod', project.mod_id,
                     '--all',
                     '--output', file('src/generated/resources/').absolutePath,
-                    '--existing', commonProject.file('src/main/resources/').absolutePath
+                    '--existing', rootProject.project(':common').file('src/main/resources/').absolutePath
             )
         }
-        configureEach {
-            systemProperty 'forge.logging.markers', 'REGISTRIES'
-            logLevel = org.slf4j.event.Level.INFO
-        }
     }
-
     mods {
         "${mod_id}" {
-            sourceSet(sourceSets.main)
-            sourceSet(commonProject.sourceSets.main)
+            sourceSet sourceSets.main
         }
     }
 }
 
-dependencies {
-    implementation commonProject
-}
-
-def generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
-    def replaceProperties = [
-            minecraft_version      : minecraft_version,
-            minecraft_version_range: minecraft_version_range,
-            neo_version            : neo_version,
-            neo_version_range      : neo_version_range,
-            loader_version_range   : loader_version_range,
-            mod_id                 : mod_id,
-            mod_name               : mod_name,
-            mod_license            : mod_license,
-            mod_version            : mod_version,
-            mod_authors            : mod_authors,
-            mod_description        : mod_description,
-            scalablelux_dependency_type: scalableLuxDependencyType
-    ]
-    inputs.properties(replaceProperties)
-    expand(replaceProperties)
-    from('src/main/templates')
-    into(layout.buildDirectory.dir('generated/sources/modMetadata'))
-}
-
-sourceSets.main.resources.srcDir(generateModMetadata)
-neoForge.ideSyncTask(generateModMetadata)
-
-tasks.named('jar', Jar) {
-    from(commonProject.sourceSets.main.output)
-}
-
-tasks.named('sourcesJar', Jar) {
-    from(commonProject.sourceSets.main.allSource)
-}
-
-publishing {
-    publications {
-        register('mavenJava', MavenPublication) {
-            from components.java
-        }
-    }
+sourceSets.main.resources {
+    srcDir 'src/generated/resources'
 }

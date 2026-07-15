@@ -1,22 +1,25 @@
 plugins {
-    id 'java-library'
-    id 'net.fabricmc.fabric-loom'
+    id 'multiloader-common'
+    id 'net.neoforged.moddev'
 }
 
-base {
-    archivesName = "${mod_id}-common-${minecraft_version}"
-}
-
-java {
-    toolchain.languageVersion = JavaLanguageVersion.of(java_version.toInteger())
-    withSourcesJar()
+neoForge {
+    neoFormVersion = neo_form_version
+    def at = file('src/main/resources/META-INF/accesstransformer.cfg')
+    if (at.exists()) {
+        accessTransformers.from(at.absolutePath)
+    }
+    parchment {
+        minecraftVersion = parchment_minecraft
+        mappingsVersion = parchment_version
+    }
 }
 
 dependencies {
-    minecraft "com.mojang:minecraft:${minecraft_version}"
-    compileOnly "net.minecraft:minecraft-merged:${minecraft_named_version}"
-    compileOnly "net.fabricmc:fabric-loader:${fabric_loader_version}"
-    compileOnly "io.github.llamalad7:mixinextras-fabric:0.5.4"
+    compileOnly group: 'org.spongepowered', name: 'mixin', version: '0.8.5'
+    compileOnly group: 'org.ow2.asm', name: 'asm-tree', version: '9.7.1'
+    compileOnly group: 'io.github.llamalad7', name: 'mixinextras-common', version: '0.5.4'
+    annotationProcessor group: 'io.github.llamalad7', name: 'mixinextras-common', version: '0.5.4'
     compileOnly('curse.maven:sable-1312371:8263584') {
         transitive = false
     }
@@ -24,6 +27,22 @@ dependencies {
     testImplementation platform('org.junit:junit-bom:5.12.2')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+configurations {
+    commonJava {
+        canBeResolved = false
+        canBeConsumed = true
+    }
+    commonResources {
+        canBeResolved = false
+        canBeConsumed = true
+    }
+}
+
+artifacts {
+    commonJava sourceSets.main.java.sourceDirectories.singleFile
+    commonResources sourceSets.main.resources.sourceDirectories.singleFile
 }
 
 tasks.withType(Test).configureEach {
