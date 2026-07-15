@@ -98,7 +98,8 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
                         LucisBenchmarkSupport.recordSince("lucis.light_chunk", startedAt);
                         return chunk;
                     });
-                });
+                })
+                .whenComplete((ignored, throwable) -> ((ChunkMapAccessor) this.lucis$chunkMap).lucis$releaseLightTicket(chunkPos));
         cir.setReturnValue(future);
     }
 
