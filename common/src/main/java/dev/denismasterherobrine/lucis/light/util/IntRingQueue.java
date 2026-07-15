@@ -4,72 +4,107 @@ import java.util.Arrays;
 import java.util.NoSuchElementException;
 
 public final class IntRingQueue {
+    private static final int MIN_CAPACITY = 4;
+    private static final int MAX_CAPACITY = 1 << 30;
+
     private int[] data;
+    private int mask;
     private int head;
     private int tail;
-    private int size;
 
     public IntRingQueue(int capacity) {
-        this.data = new int[Math.max(4, capacity)];
+        int actualCapacity = tableSizeFor(capacity);
+        this.data = new int[actualCapacity];
+        this.mask = actualCapacity - 1;
     }
 
     public void clear() {
         head = 0;
         tail = 0;
-        size = 0;
     }
 
     public boolean isEmpty() {
-        return size == 0;
+        return head == tail;
     }
 
     public int size() {
-        return size;
+        return tail - head;
     }
 
     public void enqueue(int value) {
-        ensureCapacity(size + 1);
-        data[tail] = value;
-        tail = (tail + 1) % data.length;
-        size++;
+        int[] buffer = data;
+        int head = this.head;
+        int tail = this.tail;
+
+        if (tail - head == buffer.length) {
+            grow();
+            buffer = data;
+            tail = this.tail;
+        }
+
+        int m = mask;
+        buffer[tail & m] = value;
+        this.tail = tail + 1;
     }
 
     public int dequeue() {
-        if (size == 0) {
+        int head = this.head;
+        if (head == tail) {
             throw new NoSuchElementException("IntRingQueue is empty");
         }
-        return pollUnchecked();
+
+        return pollUnchecked(head);
     }
 
     public int poll() {
-        return size == 0 ? Integer.MIN_VALUE : pollUnchecked();
+        int head = this.head;
+        return head == tail ? Integer.MIN_VALUE : pollUnchecked(head);
     }
 
-    private int pollUnchecked() {
-        int value = data[head];
-        head = (head + 1) % data.length;
-        size--;
+    private int pollUnchecked(int head) {
+        int[] buffer = data;
+        int m = mask;
+        int value = buffer[head & m];
+        this.head = head + 1;
         return value;
     }
 
-    private void ensureCapacity(int wanted) {
-        if (wanted <= data.length) {
-            return;
+    private void grow() {
+        int[] old = data;
+        int oldLength = old.length;
+        if (oldLength == MAX_CAPACITY) {
+            throw new IllegalStateException("IntRingQueue capacity overflow");
         }
 
-        int[] next = new int[data.length << 1];
-        for (int i = 0; i < size; i++) {
-            next[i] = data[(head + i) % data.length];
+        int size = tail - head;
+        int[] next = new int[oldLength << 1];
+
+        int start = head & mask;
+        int first = Math.min(size, oldLength - start);
+        System.arraycopy(old, start, next, 0, first);
+        if (first < size) {
+            System.arraycopy(old, 0, next, first, size - first);
         }
+
         data = next;
+        mask = next.length - 1;
         head = 0;
         tail = size;
+    }
+
+    private static int tableSizeFor(int capacity) {
+        int value = Math.max(MIN_CAPACITY, capacity);
+        if (value >= MAX_CAPACITY) {
+            return MAX_CAPACITY;
+        }
+
+        return 1 << (Integer.SIZE - Integer.numberOfLeadingZeros(value - 1));
     }
 
     @Override
     public String toString() {
         return "IntRingQueue{" +
-                "size=" + size +
+                "size=" + size() +
                 ", capacity=" + data.length +
                 ", data=" + Arrays.toString(data) +
                 '}';

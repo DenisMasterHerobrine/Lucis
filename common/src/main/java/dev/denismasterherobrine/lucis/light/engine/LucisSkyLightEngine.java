@@ -3,16 +3,19 @@ package dev.denismasterherobrine.lucis.light.engine;
 import dev.denismasterherobrine.lucis.light.LucisConstants;
 import dev.denismasterherobrine.lucis.light.region.RegionBounds;
 import dev.denismasterherobrine.lucis.light.region.RegionLightData;
-import dev.denismasterherobrine.lucis.light.runtime.RuntimeLightChange;
+import dev.denismasterherobrine.lucis.light.runtime.RuntimeLightChangeBuffer;
 import dev.denismasterherobrine.lucis.light.util.IntBucketQueue;
 import dev.denismasterherobrine.lucis.test.LucisBenchmarkSupport;
 
 import java.util.Arrays;
-import java.util.List;
 
 public final class LucisSkyLightEngine {
     private static final int RUNTIME_REPAIR_RADIUS_XZ = Math.max(0, Integer.getInteger("lucis.sky.runtimeRepairRadius", 2));
     private static final int RUNTIME_REPAIR_RADIUS_Y = Math.max(0, Integer.getInteger("lucis.sky.runtimeRepairRadiusY", 4));
+    private static final int RUNTIME_OPENING_REPAIR_RADIUS_XZ = Math.max(0,
+            Integer.getInteger("lucis.sky.runtimeOpeningRepairRadius", RUNTIME_REPAIR_RADIUS_XZ));
+    private static final int RUNTIME_FULL_SKY_RECOMPUTE_COLUMN_PERCENT = Math.max(0,
+            Math.min(Integer.getInteger("lucis.sky.runtimeFullRecomputeColumnPercent", 75), 100));
 
     private final ThreadLocal<IntBucketQueue> queues = ThreadLocal.withInitial(() -> new IntBucketQueue(16, 4096));
     private final ThreadLocal<RuntimeColumns> runtimeColumns = ThreadLocal.withInitial(RuntimeColumns::new);
@@ -29,28 +32,25 @@ public final class LucisSkyLightEngine {
         int area = bounds.area();
         int height = bounds.heightBlocks();
 
+        Arrays.fill(data.skyLight, (byte) 0);
         for (int z = 0; z < depth; z++) {
             int columnZBase = z * width;
             for (int x = 0; x < width; x++) {
                 int columnBase = columnZBase + x;
-                int light = LucisConstants.MAX_LIGHT;
                 for (int y = height - 1; y >= 0; y--) {
                     int index = columnBase + y * area;
                     int opacity = data.opacity[index] & 0xF;
-                    if (opacity != 0) {
-                        light -= opacity;
-                        if (light < 0) {
-                            light = 0;
-                        }
+                    int light;
+                    if (opacity == 0) {
+                        light = LucisConstants.MAX_LIGHT;
+                    } else {
+                        light = propagatedCandidate(LucisConstants.MAX_LIGHT, opacity);
                     }
                     data.skyLight[index] = (byte) light;
-
-                    if (metrics) {
-                        if (light > 1) {
-                            oldSeedCandidates++;
-                        }
+                    if (metrics && light > 1) {
+                        oldSeedCandidates++;
                     }
-                    if (light <= 0) {
+                    if (opacity != 0) {
                         break;
                     }
                 }
@@ -58,7 +58,7 @@ public final class LucisSkyLightEngine {
         }
 
         data.markCoreSkySectionsDirty();
-        seeds = seedHorizontalFrontiers(data, queue, metrics);
+        seeds = seedFrontiers(data, queue, metrics);
         int dequeues = spread(data, queue, metrics);
         if (metrics) {
             LucisBenchmarkSupport.count("lucis.sky.old_seed_candidates", oldSeedCandidates);
@@ -68,11 +68,16 @@ public final class LucisSkyLightEngine {
         }
     }
 
-    public void applyRuntimeChanges(RegionLightData data, List<RuntimeLightChange> changes) {
+    public void applyRuntimeChanges(RegionLightData data, RuntimeLightChangeBuffer changes) {
         RuntimeColumns columns = runtimeColumns.get();
         collectColumns(data, changes, columns);
         LucisBenchmarkSupport.count("lucis.sky.runtime.columns", columns.count);
         if (columns.count == 0) {
+            return;
+        }
+        if (shouldPromoteToFullSkyRecompute(data, columns)) {
+            LucisBenchmarkSupport.count("lucis.sky.runtime.promoted_full_recompute");
+            compute(data);
             return;
         }
         recomputeColumnsShallow(data, columns);
@@ -80,19 +85,48 @@ public final class LucisSkyLightEngine {
         repairRuntimeArea(data, columns);
     }
 
-    private void collectColumns(RegionLightData data, List<RuntimeLightChange> changes, RuntimeColumns columns) {
-        int width = data.bounds.widthBlocks();
-        int height = data.bounds.heightBlocks();
-        int depth = data.bounds.depthBlocks();
-        columns.reset(width * depth);
-        for (RuntimeLightChange change : changes) {
-            int localX = change.worldX() - data.bounds.minBlockX();
-            int localY = change.worldY() - data.bounds.minBuildY();
-            int localZ = change.worldZ() - data.bounds.minBlockZ();
-            if (localX >= 0 && localX < width && localY >= 0 && localY < height && localZ >= 0 && localZ < depth) {
-                columns.add(localX + localZ * width, localY);
-            }
+    private boolean shouldPromoteToFullSkyRecompute(RegionLightData data, RuntimeColumns columns) {
+        if (columns.hasOpacityChange) {
+            return true;
         }
+        if (RUNTIME_FULL_SKY_RECOMPUTE_COLUMN_PERCENT <= 0 || !columns.opaqueSkyCutAdded || columns.openedSkyPath) {
+            return false;
+        }
+        int totalColumns = data.bounds.widthBlocks() * data.bounds.depthBlocks();
+        return columns.count * 100 >= totalColumns * RUNTIME_FULL_SKY_RECOMPUTE_COLUMN_PERCENT;
+    }
+
+    private void collectColumns(RegionLightData data, RuntimeLightChangeBuffer changes, RuntimeColumns columns) {
+        int width = data.bounds.widthBlocks();
+        int area = data.bounds.area();
+        columns.reset(width * data.bounds.depthBlocks());
+        for (int i = 0; i < changes.size(); i++) {
+            long change = changes.get(i);
+            if (!RuntimeLightChangeBuffer.hasSkyChange(change)) {
+                continue;
+            }
+            int index = RuntimeLightChangeBuffer.localIndex(change);
+            int localY = index / area;
+            int column = index - localY * area;
+            if (RuntimeLightChangeBuffer.hasSkyMaterialChange(change)) {
+                int localZ = column / width;
+                int localX = column - localZ * width;
+                data.markDirtySkyLocal(localX, localY, localZ);
+            }
+            columns.add(column, localY, requiresFullDepthRepair(data, change, index, localY),
+                    RuntimeLightChangeBuffer.oldOpacity(change), RuntimeLightChangeBuffer.newOpacity(change));
+        }
+    }
+
+    private boolean requiresFullDepthRepair(RegionLightData data, long change, int index, int localY) {
+        if (RuntimeLightChangeBuffer.oldOpacity(change) == RuntimeLightChangeBuffer.newOpacity(change)) {
+            return false;
+        }
+        if ((data.skyLight[index] & 0xF) != 0) {
+            return true;
+        }
+        return localY + 1 >= data.bounds.heightBlocks()
+                || (data.skyLight[index + data.offsetPosY] & 0xF) != 0;
     }
 
     private void recomputeColumnsShallow(RegionLightData data, RuntimeColumns columns) {
@@ -114,10 +148,7 @@ public final class LucisSkyLightEngine {
                 int index = base + (localY - 1) * area;
                 int vertical = data.skyLight[base + localY * area] & 0xF;
                 int opacity = data.opacity[index] & 0xF;
-                int verticalCandidate = opacity == 0 ? vertical : vertical - opacity;
-                if (verticalCandidate < 0) {
-                    verticalCandidate = 0;
-                }
+                int verticalCandidate = verticalCandidate(vertical, opacity);
                 int lateral = lateralCandidate(data, localX, localY - 1, localZ, index);
                 setSkyCell(data, localX, localY - 1, localZ, index, verticalCandidate >= lateral ? verticalCandidate : lateral);
             }
@@ -139,32 +170,113 @@ public final class LucisSkyLightEngine {
             int column = columns.columns[i];
             int localZ = column / width;
             int localX = column - localZ * width;
-            int localY = columns.maxY[column];
+            int localMinY = columns.minY[column];
+            int localMaxY = columns.maxY[column];
             if (localX < minX) minX = localX;
             if (localX > maxX) maxX = localX;
             if (localZ < minZ) minZ = localZ;
             if (localZ > maxZ) maxZ = localZ;
-            if (localY < minY) minY = localY;
-            if (localY > maxY) maxY = localY;
+            if (localMinY < minY) minY = localMinY;
+            if (localMaxY > maxY) maxY = localMaxY;
         }
         if (maxX < 0) {
             return;
         }
 
-        minX = Math.max(0, minX - RUNTIME_REPAIR_RADIUS_XZ);
-        maxX = Math.min(width - 1, maxX + RUNTIME_REPAIR_RADIUS_XZ);
-        minZ = Math.max(0, minZ - RUNTIME_REPAIR_RADIUS_XZ);
-        maxZ = Math.min(depth - 1, maxZ + RUNTIME_REPAIR_RADIUS_XZ);
-        minY = Math.max(0, minY - RUNTIME_REPAIR_RADIUS_Y);
+        int changedMinY = minY;
+        int changedMaxY = maxY;
+        boolean useRepairMask = false;
+        boolean seedLateral = !columns.fullDepthRepair;
+        if (columns.fullDepthRepair) {
+            if (columns.opaqueSkyCutAdded && !columns.openedSkyPath) {
+                columns.beginRepairMask(width * depth);
+                markFullDepthSkyCutColumns(data, columns, changedMinY, changedMaxY);
+                if (columns.repairCount > 0) {
+                    minX = columns.repairMinX;
+                    maxX = columns.repairMaxX;
+                    minZ = columns.repairMinZ;
+                    maxZ = columns.repairMaxZ;
+                    useRepairMask = true;
+                }
+            } else if (columns.openedSkyPath) {
+                minX = Math.max(0, minX - RUNTIME_OPENING_REPAIR_RADIUS_XZ);
+                maxX = Math.min(width - 1, maxX + RUNTIME_OPENING_REPAIR_RADIUS_XZ);
+                minZ = Math.max(0, minZ - RUNTIME_OPENING_REPAIR_RADIUS_XZ);
+                maxZ = Math.min(depth - 1, maxZ + RUNTIME_OPENING_REPAIR_RADIUS_XZ);
+                seedLateral = true;
+            }
+        } else {
+            minX = Math.max(0, minX - RUNTIME_REPAIR_RADIUS_XZ);
+            maxX = Math.min(width - 1, maxX + RUNTIME_REPAIR_RADIUS_XZ);
+            minZ = Math.max(0, minZ - RUNTIME_REPAIR_RADIUS_XZ);
+            maxZ = Math.min(depth - 1, maxZ + RUNTIME_REPAIR_RADIUS_XZ);
+        }
+        minY = columns.fullDepthRepair ? 0 : Math.max(0, minY - RUNTIME_REPAIR_RADIUS_Y);
         maxY = Math.min(height - 1, maxY + RUNTIME_REPAIR_RADIUS_Y);
 
-        int cells = (maxX - minX + 1) * (maxZ - minZ + 1) * (maxY - minY + 1);
+        int cells = (useRepairMask ? columns.repairCount : (maxX - minX + 1) * (maxZ - minZ + 1))
+                * (maxY - minY + 1);
         LucisBenchmarkSupport.count("lucis.sky.runtime.repair.cells", cells);
+        int dirtyBefore = columns.fullDepthRepair ? data.dirtySkySections.cardinality() : 0;
 
+        if (useRepairMask) {
+            clearRepairColumns(data, columns, minY, maxY);
+        } else {
+            clearRepairBox(data, minX, maxX, minY, maxY, minZ, maxZ);
+        }
+
+        if (columns.fullDepthRepair) {
+            LucisBenchmarkSupport.count("lucis.sky.runtime.full_depth_dirty_sections",
+                    data.dirtySkySections.cardinality() - dirtyBefore);
+        }
+
+        IntBucketQueue queue = queues.get();
+        queue.clear();
+        if (useRepairMask) {
+            seedRepairColumns(data, queue, columns, minY, maxY);
+            seedRepairCells(data, queue, columns, minY, maxY);
+            spreadRepair(data, queue, minX, maxX, minY, maxY, minZ, maxZ, columns);
+        } else {
+            seedRepairColumns(data, queue, minX, maxX, minY, maxY, minZ, maxZ);
+            seedRepairOutside(data, minX, maxX, minY, maxY, minZ, maxZ, seedLateral);
+            seedRepairCells(data, queue, minX, maxX, minY, maxY, minZ, maxZ);
+            spreadRepair(data, queue, minX, maxX, minY, maxY, minZ, maxZ, null);
+        }
+        LucisBenchmarkSupport.count("lucis.sky.runtime.repair");
+    }
+
+    private void markFullDepthSkyCutColumns(RegionLightData data, RuntimeColumns columns, int minY, int maxY) {
+        int width = data.bounds.widthBlocks();
+        int depth = data.bounds.depthBlocks();
+        int area = data.bounds.area();
+        for (int z = 0; z < depth; z++) {
+            int rowBase = z * width;
+            for (int x = 0; x < width; x++) {
+                int columnBase = rowBase + x;
+                if (hasFullDepthSkyCutBarrier(data, columnBase, area, minY, maxY)) {
+                    columns.markRepairColumn(columnBase, x, z);
+                }
+            }
+        }
+    }
+
+    private boolean hasFullDepthSkyCutBarrier(RegionLightData data, int columnBase, int area, int minY, int maxY) {
+        for (int y = maxY; y >= minY; y--) {
+            if ((data.opacity[columnBase + y * area] & 0xF) >= LucisConstants.MAX_LIGHT) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void clearRepairBox(RegionLightData data, int minX, int maxX, int minY, int maxY, int minZ, int maxZ) {
+        int width = data.bounds.widthBlocks();
+        int area = data.bounds.area();
         for (int y = minY; y <= maxY; y++) {
+            int yBase = y * area;
             for (int z = minZ; z <= maxZ; z++) {
-                for (int x = minX; x <= maxX; x++) {
-                    int index = data.localIndex(x, y, z);
+                int index = yBase + z * width + minX;
+                for (int x = minX; x <= maxX; x++, index++) {
                     if ((data.skyLight[index] & 0xF) != 0) {
                         data.skyLight[index] = 0;
                         data.markDirtySkyLocal(x, y, z);
@@ -172,30 +284,36 @@ public final class LucisSkyLightEngine {
                 }
             }
         }
+    }
 
-        IntBucketQueue queue = queues.get();
-        queue.clear();
-        seedRepairColumns(data, queue, minX, maxX, minY, maxY, minZ, maxZ);
-        seedRepairOutside(data, minX, maxX, minY, maxY, minZ, maxZ);
-        seedRepairCells(data, queue, minX, maxX, minY, maxY, minZ, maxZ);
-        spreadRepair(data, queue, minX, maxX, minY, maxY, minZ, maxZ);
-        LucisBenchmarkSupport.count("lucis.sky.runtime.repair");
+    private void clearRepairColumns(RegionLightData data, RuntimeColumns columns, int minY, int maxY) {
+        int area = data.bounds.area();
+        for (int i = 0; i < columns.repairCount; i++) {
+            int column = columns.repairColumns[i];
+            int x = columns.repairLocalX[i];
+            int z = columns.repairLocalZ[i];
+            for (int y = minY, index = column + minY * area; y <= maxY; y++, index += area) {
+                if ((data.skyLight[index] & 0xF) != 0) {
+                    data.skyLight[index] = 0;
+                    data.markDirtySkyLocal(x, y, z);
+                }
+            }
+        }
     }
 
     private void seedRepairColumns(RegionLightData data, IntBucketQueue queue, int minX, int maxX, int minY, int maxY,
                                    int minZ, int maxZ) {
         int height = data.bounds.heightBlocks();
+        int width = data.bounds.widthBlocks();
+        int area = data.bounds.area();
         for (int z = minZ; z <= maxZ; z++) {
             for (int x = minX; x <= maxX; x++) {
+                int columnBase = x + z * width;
                 int incoming = maxY + 1 >= height ? LucisConstants.MAX_LIGHT
-                        : (data.skyLight[data.localIndex(x, maxY + 1, z)] & 0xF);
-                for (int y = maxY; y >= minY; y--) {
-                    int index = data.localIndex(x, y, z);
+                        : (data.skyLight[columnBase + (maxY + 1) * area] & 0xF);
+                for (int y = maxY, index = columnBase + maxY * area; y >= minY; y--, index -= area) {
                     int opacity = data.opacity[index] & 0xF;
-                    int next = opacity == 0 ? incoming : incoming - opacity;
-                    if (next < 0) {
-                        next = 0;
-                    }
+                    int next = verticalCandidate(incoming, opacity);
                     setSkyCell(data, x, y, z, index, next);
                     incoming = next;
                     if (incoming <= 0) {
@@ -206,25 +324,49 @@ public final class LucisSkyLightEngine {
         }
     }
 
-    private void seedRepairOutside(RegionLightData data, int minX, int maxX, int minY, int maxY, int minZ, int maxZ) {
+    private void seedRepairColumns(RegionLightData data, IntBucketQueue queue, RuntimeColumns columns, int minY, int maxY) {
+        int height = data.bounds.heightBlocks();
+        int area = data.bounds.area();
+        for (int i = 0; i < columns.repairCount; i++) {
+            int column = columns.repairColumns[i];
+            int x = columns.repairLocalX[i];
+            int z = columns.repairLocalZ[i];
+            int incoming = maxY + 1 >= height ? LucisConstants.MAX_LIGHT
+                    : (data.skyLight[column + (maxY + 1) * area] & 0xF);
+            for (int y = maxY, index = column + maxY * area; y >= minY; y--, index -= area) {
+                int opacity = data.opacity[index] & 0xF;
+                int next = verticalCandidate(incoming, opacity);
+                setSkyCell(data, x, y, z, index, next);
+                incoming = next;
+                if (incoming <= 0) {
+                    break;
+                }
+            }
+        }
+    }
+
+    private void seedRepairOutside(RegionLightData data, int minX, int maxX, int minY, int maxY, int minZ, int maxZ,
+                                   boolean seedLateral) {
         int width = data.bounds.widthBlocks();
         int depth = data.bounds.depthBlocks();
         int height = data.bounds.heightBlocks();
-        for (int y = minY; y <= maxY; y++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                if (minX > 0) {
-                    seedRepairFromNeighbor(data, minX, y, z, data.localIndex(minX, y, z), data.offsetNegX);
+        if (seedLateral) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    if (minX > 0) {
+                        seedRepairFromNeighbor(data, minX, y, z, data.localIndex(minX, y, z), data.offsetNegX);
+                    }
+                    if (maxX + 1 < width) {
+                        seedRepairFromNeighbor(data, maxX, y, z, data.localIndex(maxX, y, z), data.offsetPosX);
+                    }
                 }
-                if (maxX + 1 < width) {
-                    seedRepairFromNeighbor(data, maxX, y, z, data.localIndex(maxX, y, z), data.offsetPosX);
-                }
-            }
-            for (int x = minX; x <= maxX; x++) {
-                if (minZ > 0) {
-                    seedRepairFromNeighbor(data, x, y, minZ, data.localIndex(x, y, minZ), data.offsetNegZ);
-                }
-                if (maxZ + 1 < depth) {
-                    seedRepairFromNeighbor(data, x, y, maxZ, data.localIndex(x, y, maxZ), data.offsetPosZ);
+                for (int x = minX; x <= maxX; x++) {
+                    if (minZ > 0) {
+                        seedRepairFromNeighbor(data, x, y, minZ, data.localIndex(x, y, minZ), data.offsetNegZ);
+                    }
+                    if (maxZ + 1 < depth) {
+                        seedRepairFromNeighbor(data, x, y, maxZ, data.localIndex(x, y, maxZ), data.offsetPosZ);
+                    }
                 }
             }
         }
@@ -246,7 +388,7 @@ public final class LucisSkyLightEngine {
 
     private void seedRepairFromNeighbor(RegionLightData data, int x, int y, int z, int index, int neighborOffset) {
         int neighbor = data.skyLight[index + neighborOffset] & 0xF;
-        int candidate = neighbor - 1 - (data.opacity[index] & 0xF);
+        int candidate = propagatedCandidate(neighbor, data.opacity[index] & 0xF);
         if (candidate > (data.skyLight[index] & 0xF)) {
             data.skyLight[index] = (byte) candidate;
             data.markDirtySkyLocal(x, y, z);
@@ -256,10 +398,7 @@ public final class LucisSkyLightEngine {
     private void seedRepairFromAbove(RegionLightData data, int x, int y, int z, int index) {
         int incoming = data.skyLight[index + data.offsetPosY] & 0xF;
         int opacity = data.opacity[index] & 0xF;
-        int candidate = opacity == 0 ? incoming : incoming - opacity;
-        if (candidate < 0) {
-            candidate = 0;
-        }
+        int candidate = verticalCandidate(incoming, opacity);
         if (candidate > (data.skyLight[index] & 0xF)) {
             data.skyLight[index] = (byte) candidate;
             data.markDirtySkyLocal(x, y, z);
@@ -268,17 +407,30 @@ public final class LucisSkyLightEngine {
 
     private void seedRepairCells(RegionLightData data, IntBucketQueue queue, int minX, int maxX, int minY, int maxY,
                                  int minZ, int maxZ) {
+        int width = data.bounds.widthBlocks();
+        int area = data.bounds.area();
         for (int y = minY; y <= maxY; y++) {
+            int yBase = y * area;
             for (int z = minZ; z <= maxZ; z++) {
-                for (int x = minX; x <= maxX; x++) {
-                    seedRepairCell(data, queue, x, y, z);
+                int index = yBase + z * width + minX;
+                for (int x = minX; x <= maxX; x++, index++) {
+                    seedRepairCell(data, queue, index);
                 }
             }
         }
     }
 
-    private void seedRepairCell(RegionLightData data, IntBucketQueue queue, int x, int y, int z) {
-        int index = data.localIndex(x, y, z);
+    private void seedRepairCells(RegionLightData data, IntBucketQueue queue, RuntimeColumns columns, int minY, int maxY) {
+        int area = data.bounds.area();
+        for (int i = 0; i < columns.repairCount; i++) {
+            int column = columns.repairColumns[i];
+            for (int y = minY, index = column + minY * area; y <= maxY; y++, index += area) {
+                seedRepairCell(data, queue, index);
+            }
+        }
+    }
+
+    private void seedRepairCell(RegionLightData data, IntBucketQueue queue, int index) {
         int current = data.skyLight[index] & 0xF;
         if (current > 1) {
             queue.enqueue(current, index);
@@ -286,7 +438,7 @@ public final class LucisSkyLightEngine {
     }
 
     private void spreadRepair(RegionLightData data, IntBucketQueue queue, int minX, int maxX, int minY, int maxY,
-                              int minZ, int maxZ) {
+                              int minZ, int maxZ, RuntimeColumns repairMask) {
         int width = data.bounds.widthBlocks();
         int area = data.bounds.area();
         int index;
@@ -301,24 +453,32 @@ public final class LucisSkyLightEngine {
             int x = rem - z * width;
 
             if (x + 1 <= maxX) {
-                spreadTo(data, queue, current, x + 1, y, z, index + data.offsetPosX);
+                spreadRepairTo(data, queue, current, x + 1, y, z, index + data.offsetPosX, repairMask);
             }
             if (x - 1 >= minX) {
-                spreadTo(data, queue, current, x - 1, y, z, index + data.offsetNegX);
+                spreadRepairTo(data, queue, current, x - 1, y, z, index + data.offsetNegX, repairMask);
             }
             if (z + 1 <= maxZ) {
-                spreadTo(data, queue, current, x, y, z + 1, index + data.offsetPosZ);
+                spreadRepairTo(data, queue, current, x, y, z + 1, index + data.offsetPosZ, repairMask);
             }
             if (z - 1 >= minZ) {
-                spreadTo(data, queue, current, x, y, z - 1, index + data.offsetNegZ);
+                spreadRepairTo(data, queue, current, x, y, z - 1, index + data.offsetNegZ, repairMask);
             }
             if (y + 1 <= maxY) {
-                spreadTo(data, queue, current, x, y + 1, z, index + data.offsetPosY);
+                spreadRepairTo(data, queue, current, x, y + 1, z, index + data.offsetPosY, repairMask);
             }
             if (y - 1 >= minY) {
-                spreadTo(data, queue, current, x, y - 1, z, index + data.offsetNegY);
+                spreadRepairTo(data, queue, current, x, y - 1, z, index + data.offsetNegY, repairMask);
             }
         }
+    }
+
+    private void spreadRepairTo(RegionLightData data, IntBucketQueue queue, int current, int nextX, int nextY, int nextZ,
+                                int nextIndex, RuntimeColumns repairMask) {
+        if (repairMask != null && !repairMask.isRepairColumn(nextX + nextZ * data.bounds.widthBlocks())) {
+            return;
+        }
+        spreadTo(data, queue, current, nextX, nextY, nextZ, nextIndex);
     }
 
     private void setSkyCell(RegionLightData data, int localX, int localY, int localZ, int index, int next) {
@@ -330,10 +490,7 @@ public final class LucisSkyLightEngine {
 
     private void updateSkyCell(RegionLightData data, int localX, int localY, int localZ, int index, int incoming) {
         int opacity = data.opacity[index] & 0xF;
-        int next = opacity == 0 ? incoming : incoming - opacity;
-        if (next < 0) {
-            next = 0;
-        }
+        int next = verticalCandidate(incoming, opacity);
         if ((data.skyLight[index] & 0xF) != next) {
             data.skyLight[index] = (byte) next;
             data.markDirtySkyLocal(localX, localY, localZ);
@@ -358,8 +515,7 @@ public final class LucisSkyLightEngine {
         if (value > best) {
             best = value;
         }
-        int candidate = best - 1 - opacity;
-        return candidate > 0 ? candidate : 0;
+        return propagatedCandidate(best, opacity);
     }
 
     private int neighborSky(RegionLightData data, int localX, int localY, int localZ, int index) {
@@ -370,7 +526,7 @@ public final class LucisSkyLightEngine {
         return data.skyLight[index] & 0xF;
     }
 
-    private int seedHorizontalFrontiers(RegionLightData data, IntBucketQueue queue, boolean metrics) {
+    private int seedFrontiers(RegionLightData data, IntBucketQueue queue, boolean metrics) {
         RegionBounds bounds = data.bounds;
         int width = bounds.widthBlocks();
         int depth = bounds.depthBlocks();
@@ -385,7 +541,7 @@ public final class LucisSkyLightEngine {
                     int index = rowBase + x;
                     int current = data.skyLight[index] & 0xF;
                     if (current > 1) {
-                        seeds += seedKnownHorizontalFrontier(data, queue, current, x, z, index);
+                        seeds += seedKnownFrontier(data, queue, current, x, y, z, index);
                     }
                 }
             }
@@ -393,7 +549,7 @@ public final class LucisSkyLightEngine {
         return seeds;
     }
 
-    private int seedKnownHorizontalFrontier(RegionLightData data, IntBucketQueue queue, int current, int x, int z, int index) {
+    private int seedKnownFrontier(RegionLightData data, IntBucketQueue queue, int current, int x, int y, int z, int index) {
         int seeds = 0;
         boolean queuedCurrent = false;
         if (x > 0) {
@@ -413,7 +569,8 @@ public final class LucisSkyLightEngine {
             int north = data.skyLight[northIndex] & 0xF;
             if (canImproveSky(data, current, northIndex)) {
                 if (!queuedCurrent) {
-                        queue.enqueue(current, index);
+                    queue.enqueue(current, index);
+                    queuedCurrent = true;
                     seeds++;
                 }
             } else if (canImproveSky(data, north, index)) {
@@ -441,6 +598,7 @@ public final class LucisSkyLightEngine {
             if (canImproveSky(data, current, southIndex)) {
                 if (!queuedCurrent) {
                     queue.enqueue(current, index);
+                    queuedCurrent = true;
                     seeds++;
                 }
             } else if (canImproveSky(data, south, index)) {
@@ -448,11 +606,38 @@ public final class LucisSkyLightEngine {
                 seeds++;
             }
         }
+        if (y > 0) {
+            int downIndex = index + data.offsetNegY;
+            int down = data.skyLight[downIndex] & 0xF;
+            if (canImproveSky(data, current, downIndex)) {
+                if (!queuedCurrent) {
+                    queue.enqueue(current, index);
+                    queuedCurrent = true;
+                    seeds++;
+                }
+            } else if (canImproveSky(data, down, index)) {
+                queue.enqueue(down, downIndex);
+                seeds++;
+            }
+        }
+        if (y + 1 < data.bounds.heightBlocks()) {
+            int upIndex = index + data.offsetPosY;
+            int up = data.skyLight[upIndex] & 0xF;
+            if (canImproveSky(data, current, upIndex)) {
+                if (!queuedCurrent) {
+                    queue.enqueue(current, index);
+                    seeds++;
+                }
+            } else if (canImproveSky(data, up, index)) {
+                queue.enqueue(up, upIndex);
+                seeds++;
+            }
+        }
         return seeds;
     }
 
     private boolean canImproveSky(RegionLightData data, int current, int nextIndex) {
-        int candidate = current - 1 - (data.opacity[nextIndex] & 0xF);
+        int candidate = propagatedCandidate(current, data.opacity[nextIndex] & 0xF);
         return candidate > (data.skyLight[nextIndex] & 0xF);
     }
 
@@ -500,7 +685,7 @@ public final class LucisSkyLightEngine {
     }
 
     private void spreadTo(RegionLightData data, IntBucketQueue queue, int current, int nextX, int nextY, int nextZ, int nextIndex) {
-        int candidate = current - 1 - (data.opacity[nextIndex] & 0xF);
+        int candidate = propagatedCandidate(current, data.opacity[nextIndex] & 0xF);
         if (candidate > (data.skyLight[nextIndex] & 0xF)) {
             data.skyLight[nextIndex] = (byte) candidate;
             data.markDirtySkyLocal(nextX, nextY, nextZ);
@@ -510,16 +695,54 @@ public final class LucisSkyLightEngine {
         }
     }
 
+    private static int verticalCandidate(int incoming, int opacity) {
+        if (incoming <= 0) {
+            return 0;
+        }
+        if (incoming == LucisConstants.MAX_LIGHT && opacity == 0) {
+            return LucisConstants.MAX_LIGHT;
+        }
+        return propagatedCandidate(incoming, opacity);
+    }
+
+    private static int propagatedCandidate(int incoming, int opacity) {
+        int candidate = incoming - propagationCost(opacity);
+        return candidate > 0 ? candidate : 0;
+    }
+
+    private static int propagationCost(int opacity) {
+        return opacity <= 0 ? 1 : opacity;
+    }
+
     private static final class RuntimeColumns {
         private int[] maxY = new int[0];
+        private int[] minY = new int[0];
         private int[] stamps = new int[0];
         private int[] columns = new int[0];
+        private int[] repairStamps = new int[0];
+        private int[] repairColumns = new int[0];
+        private int[] repairLocalX = new int[0];
+        private int[] repairLocalZ = new int[0];
         private int stamp;
+        private int repairStamp;
         private int count;
+        private int repairCount;
+        private int repairMinX;
+        private int repairMinZ;
+        private int repairMaxX;
+        private int repairMaxZ;
+        private boolean fullDepthRepair;
+        private boolean hasOpacityChange;
+        private boolean opaqueSkyCutAdded;
+        private boolean openedSkyPath;
 
         private void reset(int capacity) {
             ensureCapacity(capacity);
             count = 0;
+            fullDepthRepair = false;
+            hasOpacityChange = false;
+            opaqueSkyCutAdded = false;
+            openedSkyPath = false;
             stamp++;
             if (stamp == 0) {
                 Arrays.fill(stamps, 0);
@@ -532,18 +755,71 @@ public final class LucisSkyLightEngine {
                 return;
             }
             maxY = new int[capacity];
+            minY = new int[capacity];
             stamps = new int[capacity];
             columns = new int[capacity];
+            repairStamps = new int[capacity];
+            repairColumns = new int[capacity];
+            repairLocalX = new int[capacity];
+            repairLocalZ = new int[capacity];
         }
 
-        private void add(int column, int localY) {
+        private void add(int column, int localY, boolean fullDepthRepair, int oldOpacity, int newOpacity) {
+            if (oldOpacity != newOpacity) {
+                hasOpacityChange = true;
+            }
+            if (fullDepthRepair) {
+                this.fullDepthRepair = true;
+                if (oldOpacity < LucisConstants.MAX_LIGHT && newOpacity >= LucisConstants.MAX_LIGHT) {
+                    opaqueSkyCutAdded = true;
+                }
+                if (newOpacity < oldOpacity) {
+                    openedSkyPath = true;
+                }
+            }
             if (stamps[column] != stamp) {
                 stamps[column] = stamp;
                 maxY[column] = localY;
+                minY[column] = localY;
                 columns[count++] = column;
             } else if (localY > maxY[column]) {
                 maxY[column] = localY;
+            } else if (localY < minY[column]) {
+                minY[column] = localY;
             }
+        }
+
+        private void beginRepairMask(int capacity) {
+            ensureCapacity(capacity);
+            repairCount = 0;
+            repairMinX = Integer.MAX_VALUE;
+            repairMinZ = Integer.MAX_VALUE;
+            repairMaxX = -1;
+            repairMaxZ = -1;
+            repairStamp++;
+            if (repairStamp == 0) {
+                Arrays.fill(repairStamps, 0);
+                repairStamp = 1;
+            }
+        }
+
+        private void markRepairColumn(int column, int localX, int localZ) {
+            if (repairStamps[column] == repairStamp) {
+                return;
+            }
+            repairStamps[column] = repairStamp;
+            repairColumns[repairCount] = column;
+            repairLocalX[repairCount] = localX;
+            repairLocalZ[repairCount] = localZ;
+            repairCount++;
+            if (localX < repairMinX) repairMinX = localX;
+            if (localX > repairMaxX) repairMaxX = localX;
+            if (localZ < repairMinZ) repairMinZ = localZ;
+            if (localZ > repairMaxZ) repairMaxZ = localZ;
+        }
+
+        private boolean isRepairColumn(int column) {
+            return repairStamps[column] == repairStamp;
         }
     }
 }

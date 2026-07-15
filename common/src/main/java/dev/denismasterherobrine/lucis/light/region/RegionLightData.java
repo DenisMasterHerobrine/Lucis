@@ -164,6 +164,10 @@ public final class RegionLightData {
         dirtySkySections.clear();
     }
 
+    public void beginFullPopulate() {
+        clearDirty();
+    }
+
     public void resetForReuse() {
         java.util.Arrays.fill(opacity, (byte) 0);
         java.util.Arrays.fill(emission, (byte) 0);
