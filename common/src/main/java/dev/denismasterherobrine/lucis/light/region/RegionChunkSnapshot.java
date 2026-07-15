@@ -95,7 +95,7 @@ public final class RegionChunkSnapshot implements BlockGetter {
     }
 
     @Override
-    public int getMinBuildHeight() {
+    public int getMinY() {
         return bounds.minBuildY();
     }
 
@@ -119,7 +119,7 @@ public final class RegionChunkSnapshot implements BlockGetter {
             for (int i = 0; i < liveSections.length; i++) {
                 sections[i] = liveSections[i].getStates().copy();
             }
-            return new SnapshotChunk(chunk.getMinBuildHeight(), chunk.getMaxBuildHeight(), chunk.getMinSection(), sections);
+            return new SnapshotChunk(chunk.getMinY(), chunk.getMaxY(), chunk.getMinSectionY(), sections);
         }
 
         private BlockState getBlockState(int worldX, int worldY, int worldZ) {
