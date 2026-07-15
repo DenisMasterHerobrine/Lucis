@@ -18,6 +18,10 @@ allprojects {
             name = 'NeoForge'
             url = 'https://maven.neoforged.net/releases'
         }
+        maven {
+            name = 'Fabric Loom Minecraft'
+            url = file("${System.getProperty('user.home')}/.gradle/caches/fabric-loom/minecraftMaven")
+        }
     }
 }
 

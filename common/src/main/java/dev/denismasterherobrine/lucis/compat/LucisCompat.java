@@ -26,7 +26,7 @@ public final class LucisCompat {
 
     public static boolean isSablePlotChunk(LightChunkGetter getter, ChunkPos chunkPos) {
         Level level = levelFromGetter(getter);
-        return level != null && isSablePlotChunk(level, chunkPos.x(), chunkPos.z());
+        return level != null && isSablePlotChunk(level, chunkPos.x, chunkPos.z);
     }
 
     public static boolean isSablePlotChunk(LightChunkGetter getter, int chunkX, int chunkZ) {

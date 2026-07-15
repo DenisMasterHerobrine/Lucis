@@ -36,6 +36,15 @@ public final class LucisClientLoadDiagnostics {
         logSnapshot("player_join", System.nanoTime());
     }
 
+    public static void onServerTick(MinecraftServer server) {
+        if (!enabled() || startedAtNanos == 0L || server.isDedicatedServer() || PLAYER_LOGGED.get()) {
+            return;
+        }
+        if (server.getPlayerList().getPlayerCount() > 0) {
+            onPlayerLoggedIn();
+        }
+    }
+
     public static void onServerStopping(MinecraftServer server) {
         if (!enabled() || startedAtNanos == 0L || server.isDedicatedServer()) {
             return;

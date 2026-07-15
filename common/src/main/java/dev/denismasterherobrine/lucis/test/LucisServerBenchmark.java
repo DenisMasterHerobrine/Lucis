@@ -474,7 +474,7 @@ public final class LucisServerBenchmark {
                         continue;
                     }
                     ChunkPos chunkPos = this.trackedChunks[pollIndex];
-                    if (chunkSource.getChunkNow(chunkPos.x(), chunkPos.z()) != null) {
+                    if (chunkSource.getChunkNow(chunkPos.x, chunkPos.z) != null) {
                         this.preparedChunkLoaded[pollIndex] = true;
                         this.remainingPrepareChunks--;
                     } else if (firstPendingIndex < 0) {
@@ -490,7 +490,7 @@ public final class LucisServerBenchmark {
                     LOGGER.info("Lucis light benchmark prepare waiting: mode={} ticketed={}/{} loaded={}/{} pending={} at ({}, {})",
                                 this.config.mode(), this.prepareTicketIndex, this.trackedChunks.length,
                                 this.trackedChunks.length - this.remainingPrepareChunks, this.trackedChunks.length,
-                                this.remainingPrepareChunks, chunkPos.x(), chunkPos.z());
+                                this.remainingPrepareChunks, chunkPos.x, chunkPos.z);
                     }
                     if (this.config.prepareMaxTicks() > 0 && this.waitTicks > this.config.prepareMaxTicks()) {
                         LOGGER.error("Lucis light benchmark prepare timed out: mode={} workload={} pending={} ticks={}",
@@ -557,7 +557,7 @@ public final class LucisServerBenchmark {
             this.level.getChunkSource().getLightEngine().tryScheduleUpdate();
             for (int index = 0; index < this.trackedChunks.length; index++) {
                 ChunkPos chunkPos = this.trackedChunks[index];
-                this.waitFutures[index] = this.level.getChunkSource().getLightEngine().waitForPendingTasks(chunkPos.x(), chunkPos.z());
+                this.waitFutures[index] = this.level.getChunkSource().getLightEngine().waitForPendingTasks(chunkPos.x, chunkPos.z);
             }
             this.waitTicks = 0;
             this.waitFailure = null;
@@ -597,7 +597,7 @@ public final class LucisServerBenchmark {
                     pending++;
                     if (pendingChunk.isEmpty()) {
                         ChunkPos chunkPos = this.trackedChunks[index];
-                        pendingChunk = chunkPos.x() + "," + chunkPos.z();
+                        pendingChunk = chunkPos.x + "," + chunkPos.z;
                     }
                 }
                 boolean runtimePending = LucisServices.controller().hasPendingRuntimeWork();

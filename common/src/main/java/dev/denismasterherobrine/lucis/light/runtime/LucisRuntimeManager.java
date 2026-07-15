@@ -160,7 +160,7 @@ public final class LucisRuntimeManager implements AutoCloseable {
         }
 
         ChunkPos anchor = new ChunkPos(ChunkPos.getX(regionKey), ChunkPos.getZ(regionKey));
-        LightChunk coreChunk = getter.getChunkForLighting(anchor.x(), anchor.z());
+        LightChunk coreChunk = getter.getChunkForLighting(anchor.x, anchor.z);
         if (coreChunk == null) {
             LucisBenchmarkSupport.count("lucis.runtime.requeued.missingChunk");
             requeue(regionKey, batch);

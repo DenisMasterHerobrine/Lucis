@@ -84,13 +84,13 @@ loom {
             runDir = '../run-fabric-server'
         }
         benchmarkLucisServer {
-            configureBenchmarkRun(delegate, 'run-benchmark-26.1.2-fabric-lucis', 'lucis', true)
+            configureBenchmarkRun(delegate, 'run-benchmark-1.21.11-fabric-lucis', 'lucis', true)
         }
         benchmarkVanillaServer {
-            configureBenchmarkRun(delegate, 'run-benchmark-26.1.2-fabric-vanilla', 'vanilla', false)
+            configureBenchmarkRun(delegate, 'run-benchmark-1.21.11-fabric-vanilla', 'vanilla', false)
         }
         benchmarkScalableLuxServer {
-            configureBenchmarkRun(delegate, 'run-benchmark-26.1.2-fabric-scalablelux', 'scalablelux', false, 'scalablelux')
+            configureBenchmarkRun(delegate, 'run-benchmark-1.21.11-fabric-scalablelux', 'scalablelux', false, 'scalablelux')
         }
     }
 }
@@ -98,8 +98,9 @@ loom {
 dependencies {
     implementation commonProject
     minecraft "com.mojang:minecraft:${minecraft_version}"
+    compileOnly "net.minecraft:minecraft-merged:${minecraft_named_version}"
     implementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
-    implementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+    compileOnly "net.fabricmc.fabric-api:fabric-lifecycle-events-v1:${fabric_lifecycle_events_version}"
 }
 
 tasks.named('jar', Jar) {
@@ -115,7 +116,7 @@ processResources {
             version: project.version,
             minecraft_version: minecraft_version,
             fabric_loader_version: fabric_loader_version,
-            fabric_api_version: fabric_api_version
+            fabric_lifecycle_events_version: fabric_lifecycle_events_version
     )
     inputs.property('benchmarkAllowScalableLux', benchmarkAllowScalableLux)
 
@@ -124,7 +125,7 @@ processResources {
                 version: project.version,
                 minecraft_version: minecraft_version,
                 fabric_loader_version: fabric_loader_version,
-                fabric_api_version: fabric_api_version
+                fabric_lifecycle_events_version: fabric_lifecycle_events_version
         )
     }
 

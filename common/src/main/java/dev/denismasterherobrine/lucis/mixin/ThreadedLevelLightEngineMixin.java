@@ -138,7 +138,7 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
         }
 
         ChunkPos chunkPos = chunk.getPos();
-        CompletableFuture<Void> initialized = lucis$addPostTask(chunkPos.x(), chunkPos.z(), () -> {
+        CompletableFuture<Void> initialized = lucis$addPostTask(chunkPos.x, chunkPos.z, () -> {
             long startedAt = LucisBenchmarkSupport.start();
             LevelChunkSection[] sections = chunk.getSections();
             for (int i = 0; i < chunk.getSectionsCount(); i++) {
@@ -157,7 +157,7 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
 
     @Override
     public CompletableFuture<Void> lucis$publish(LucisRelightResult result, LightChunk expectedChunk) {
-        return lucis$addPostTask(result.chunkPos().x(), result.chunkPos().z(),
+        return lucis$addPostTask(result.chunkPos().x, result.chunkPos().z,
                 () -> lucis$publishDirect(result, expectedChunk));
     }
 
@@ -249,7 +249,7 @@ public abstract class ThreadedLevelLightEngineMixin extends LevelLightEngine imp
     private void lucis$publishDirect(LucisRelightResult result, LightChunk expectedChunk) {
         if (expectedChunk != null) {
             ChunkPos chunkPos = result.chunkPos();
-            if (this.lucis$chunkSource.getChunkForLighting(chunkPos.x(), chunkPos.z()) != expectedChunk) {
+            if (this.lucis$chunkSource.getChunkForLighting(chunkPos.x, chunkPos.z) != expectedChunk) {
                 LucisBenchmarkSupport.count("lucis.runtime.commit.staleChunk");
                 return;
             }

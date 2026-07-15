@@ -21,8 +21,8 @@ public record RegionBounds(
         int volume
 ) {
     public static RegionBounds around(ChunkPos center, LevelHeightAccessor level, int regionChunks, int haloChunks) {
-        int originChunkX = Math.floorDiv(center.x(), regionChunks) * regionChunks;
-        int originChunkZ = Math.floorDiv(center.z(), regionChunks) * regionChunks;
+        int originChunkX = Math.floorDiv(center.x, regionChunks) * regionChunks;
+        int originChunkZ = Math.floorDiv(center.z, regionChunks) * regionChunks;
         int widthBlocks = (regionChunks + haloChunks * 2) * LucisConstants.SECTION_SIZE;
         int depthBlocks = widthBlocks;
         int minBuildY = level.getMinY();

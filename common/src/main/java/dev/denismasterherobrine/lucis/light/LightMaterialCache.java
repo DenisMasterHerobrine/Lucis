@@ -51,7 +51,7 @@ public final class LightMaterialCache {
     private static int material(BlockGetter level, BlockState state, BlockPos pos, int emission, int staticFlags) {
         boolean foliage = (staticFlags & LightMaterial.FLAG_FOLIAGE) != 0;
         boolean glass = (staticFlags & LightMaterial.FLAG_GLASS) != 0;
-        int opacity = glass ? 0 : clampLight(state.getLightDampening());
+        int opacity = glass ? 0 : clampLight(state.getLightBlock());
         if (foliage && opacity == 0) {
             opacity = 1;
         }

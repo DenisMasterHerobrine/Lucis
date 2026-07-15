@@ -23,7 +23,7 @@ public final class LucisPublishEngine {
         int minChunkZ = bounds.originChunkZ();
         int maxChunkX = minChunkX + bounds.regionChunks();
         int maxChunkZ = minChunkZ + bounds.regionChunks();
-        if (chunkPos.x() < minChunkX || chunkPos.x() >= maxChunkX || chunkPos.z() < minChunkZ || chunkPos.z() >= maxChunkZ) {
+        if (chunkPos.x < minChunkX || chunkPos.x >= maxChunkX || chunkPos.z < minChunkZ || chunkPos.z >= maxChunkZ) {
             return new LucisRelightResult(chunkPos, List.of());
         }
 
@@ -75,8 +75,8 @@ public final class LucisPublishEngine {
 
     private void collect(RegionLightData data, ChunkPos chunkPos, LightLayer layer, boolean sky, BitSet dirtyMask, List<LucisSectionData> out) {
         int sectionWidth = data.sectionWidth;
-        int localChunkX = chunkPos.x() - (data.bounds.originChunkX() - data.bounds.haloChunks());
-        int localChunkZ = chunkPos.z() - (data.bounds.originChunkZ() - data.bounds.haloChunks());
+        int localChunkX = chunkPos.x - (data.bounds.originChunkX() - data.bounds.haloChunks());
+        int localChunkZ = chunkPos.z - (data.bounds.originChunkZ() - data.bounds.haloChunks());
         int sectionIndexBase = localChunkX + localChunkZ * sectionWidth;
         int sectionsPerPlane = data.sectionsPerPlane;
         byte[] source = sky ? data.skyLight : data.blockLight;
@@ -87,8 +87,8 @@ public final class LucisPublishEngine {
                 continue;
             }
 
-            int worldSectionX = chunkPos.x() << 4;
-            int worldSectionZ = chunkPos.z() << 4;
+            int worldSectionX = chunkPos.x << 4;
+            int worldSectionZ = chunkPos.z << 4;
             int worldSectionY = data.bounds.minSectionY() + sectionY;
             DataLayer packed = NibblePacker.packSection(data, source, worldSectionX, worldSectionY, worldSectionZ);
             out.add(new LucisSectionData(SectionPos.of(chunkPos, data.bounds.minSectionY() + sectionY), layer, packed));

@@ -83,13 +83,13 @@ neoForge {
             programArgument '--nogui'
         }
         benchmarkLucisServer {
-            configureBenchmarkRun(delegate, 'run-benchmark-26.1.2-neoforge-lucis', 'lucis', true)
+            configureBenchmarkRun(delegate, 'run-benchmark-1.21.11-neoforge-lucis', 'lucis', true)
         }
         benchmarkVanillaServer {
-            configureBenchmarkRun(delegate, 'run-benchmark-26.1.2-neoforge-vanilla', 'vanilla', false)
+            configureBenchmarkRun(delegate, 'run-benchmark-1.21.11-neoforge-vanilla', 'vanilla', false)
         }
         benchmarkScalableLuxServer {
-            configureBenchmarkRun(delegate, 'run-benchmark-26.1.2-neoforge-scalablelux', 'scalablelux', false, 'scalablelux')
+            configureBenchmarkRun(delegate, 'run-benchmark-1.21.11-neoforge-scalablelux', 'scalablelux', false, 'scalablelux')
         }
         data {
             clientData()

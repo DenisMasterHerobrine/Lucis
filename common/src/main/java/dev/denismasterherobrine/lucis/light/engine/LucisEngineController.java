@@ -70,14 +70,14 @@ public final class LucisEngineController {
 
     public LucisRelightResult relightAtBlock(LightChunkGetter getter, BlockPos pos) {
         if (!shouldHandleBlockChange(getter, pos)) {
-            return new LucisRelightResult(ChunkPos.containing(pos), java.util.List.of());
+            return new LucisRelightResult(new ChunkPos(pos), java.util.List.of());
         }
 
         LightChunk chunk = getter.getChunkForLighting(pos.getX() >> 4, pos.getZ() >> 4);
         if (chunk instanceof ChunkAccess chunkAccess) {
             return relightChunk(getter, chunkAccess, true);
         }
-        return new LucisRelightResult(ChunkPos.containing(pos), java.util.List.of());
+        return new LucisRelightResult(new ChunkPos(pos), java.util.List.of());
     }
 
     public boolean shouldHandleBlockChange(BlockPos pos) {
