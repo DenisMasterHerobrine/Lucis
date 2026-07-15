@@ -1,13 +1,13 @@
 plugins {
     id 'multiloader-common'
-    id 'net.neoforged.moddev'
+    id 'net.neoforged.moddev.legacyforge'
 }
 
-neoForge {
-    neoFormVersion = neo_form_version
+legacyForge {
+    mcpVersion = minecraft_version
     def at = file('src/main/resources/META-INF/accesstransformer.cfg')
     if (at.exists()) {
-        accessTransformers.from(at.absolutePath)
+        accessTransformers = [at.absolutePath]
     }
     parchment {
         minecraftVersion = parchment_minecraft
@@ -20,10 +20,6 @@ dependencies {
     compileOnly group: 'org.ow2.asm', name: 'asm-tree', version: '9.7.1'
     compileOnly group: 'io.github.llamalad7', name: 'mixinextras-common', version: '0.5.4'
     annotationProcessor group: 'io.github.llamalad7', name: 'mixinextras-common', version: '0.5.4'
-    compileOnly('curse.maven:sable-1312371:8263584') {
-        transitive = false
-    }
-
     testImplementation platform('org.junit:junit-bom:5.12.2')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'

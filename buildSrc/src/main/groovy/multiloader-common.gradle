@@ -3,10 +3,6 @@ plugins {
     id 'maven-publish'
 }
 
-def scalableLuxDependencyType = providers.gradleProperty('benchmarkAllowScalableLux')
-        .map { it.toBoolean() ? 'discouraged' : 'incompatible' }
-        .getOrElse('incompatible')
-
 base {
     archivesName = "${mod_id}-${project.name}-${minecraft_version}"
 }
@@ -40,6 +36,18 @@ repositories {
         }
         filter {
             includeGroupAndSubgroups('org.spongepowered')
+        }
+    }
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'Forge'
+                url = 'https://maven.minecraftforge.net'
+            }
+        }
+        filter {
+            includeGroupAndSubgroups('net.minecraftforge')
+            includeGroupAndSubgroups('net.minecraftforge.gradle')
         }
     }
     exclusiveContent {
@@ -93,27 +101,35 @@ tasks.named('jar', Jar) {
 
 processResources {
     var expandProps = [
-            'version'                       : version,
-            'group'                         : project.group,
-            'minecraft_version'             : minecraft_version,
-            'minecraft_version_range'       : minecraft_version_range,
-            'fabric_version'                : fabric_version,
-            'fabric_loader_version'         : fabric_loader_version,
-            'mod_name'                      : mod_name,
-            'mod_author'                    : mod_author,
-            'mod_id'                        : mod_id,
-            'license'                       : license,
-            'description'                   : project.description,
-            'neoforge_version'              : neoforge_version,
-            'neoforge_loader_version_range' : neoforge_loader_version_range,
-            'credits'                       : credits,
-            'java_version'                  : java_version,
-            'scalablelux_dependency_type'   : scalableLuxDependencyType
+            'version'                    : version,
+            'group'                      : project.group,
+            'minecraft_version'          : minecraft_version,
+            'minecraft_version_range'    : minecraft_version_range,
+            'fabric_version'             : fabric_version,
+            'fabric_loader_version'      : fabric_loader_version,
+            'mod_name'                   : mod_name,
+            'mod_author'                 : mod_author,
+            'mod_id'                     : mod_id,
+            'license'                    : license,
+            'description'                : project.description,
+            'forge_version'              : forge_version,
+            'forge_loader_version_range' : forge_loader_version_range,
+            'credits'                    : credits,
+            'java_version'               : java_version
     ]
 
-    filesMatching(['pack.mcmeta', 'fabric.mod.json', 'META-INF/neoforge.mods.toml', '*.mixins.json']) {
+    var jsonExpandProps = expandProps.collectEntries { key, value ->
+        [(key): value instanceof String ? value.replace("\n", "\\\\n") : value]
+    }
+
+    filesMatching(['META-INF/mods.toml']) {
         expand expandProps
     }
+
+    filesMatching(['pack.mcmeta', 'fabric.mod.json', '*.mixins.json']) {
+        expand jsonExpandProps
+    }
+
     inputs.properties(expandProps)
 }
 

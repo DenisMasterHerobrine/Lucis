@@ -2,7 +2,8 @@
   "required": true,
   "minVersion": "0.8",
   "package": "dev.denismasterherobrine.lucis.mixin",
-  "compatibilityLevel": "JAVA_21",
+  "refmap": "${mod_id}.refmap.json",
+  "compatibilityLevel": "JAVA_17",
   "plugin": "dev.denismasterherobrine.lucis.mixin.LucisMixinPlugin",
   "mixins": [
     "ChunkMapAccessor",
@@ -10,8 +11,7 @@
     "ServerLevelMixin",
     "ServerChunkCacheMixin",
     "ThreadedLevelLightEngineMixin",
-    "WorldGenRegionMixin",
-    "compat.sable.SableServerLevelAccessor"
+    "WorldGenRegionMixin"
   ],
   "client": [
   ],

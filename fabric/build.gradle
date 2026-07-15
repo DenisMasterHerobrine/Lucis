@@ -18,18 +18,21 @@ loom {
     if (aw.exists()) {
         accessWidenerPath.set(aw)
     }
+    mixin {
+        defaultRefmapName.set("${mod_id}.refmap.json")
+    }
     runs {
         client {
             client()
             setConfigName('Fabric Client')
             ideConfigGenerated(true)
-            runDir('../run-fabric-client')
+            runDir('../run-fabric-1.20.1-client')
         }
         server {
             server()
             setConfigName('Fabric Server')
             ideConfigGenerated(true)
-            runDir('../run-fabric-server')
+            runDir('../run-fabric-1.20.1-server')
         }
     }
 }

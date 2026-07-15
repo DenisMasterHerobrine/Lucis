@@ -1,13 +1,20 @@
 plugins {
     id 'multiloader-loader'
-    id 'net.neoforged.moddev'
+    id 'net.neoforged.moddev.legacyforge'
 }
 
-neoForge {
-    version = neoforge_version
+mixin {
+    add(sourceSets.main, "${mod_id}.refmap.json")
+    config("${mod_id}.mixins.json")
+}
+
+legacyForge {
+    version = "${minecraft_version}-${forge_version}"
+    validateAccessTransformers = true
+
     def at = project(':common').file('src/main/resources/META-INF/accesstransformer.cfg')
     if (at.exists()) {
-        accessTransformers.from(at.absolutePath)
+        accessTransformers = [at.absolutePath]
     }
     parchment {
         minecraftVersion = parchment_minecraft
@@ -15,16 +22,15 @@ neoForge {
     }
     runs {
         configureEach {
-            systemProperty('neoforge.enabledGameTestNamespaces', mod_id)
-            ideName = "NeoForge ${it.name.capitalize()} (${project.path})"
+            ideName = "Forge ${it.name.capitalize()} (${project.path})"
         }
         client {
             client()
-            gameDirectory = rootProject.file('run-neoforge-client')
+            gameDirectory = rootProject.file('run-forge-1.20.1-client')
         }
         server {
             server()
-            gameDirectory = rootProject.file('run-neoforge-server')
+            gameDirectory = rootProject.file('run-forge-1.20.1-server')
             programArgument '--nogui'
         }
         data {
@@ -46,4 +52,17 @@ neoForge {
 
 sourceSets.main.resources {
     srcDir 'src/generated/resources'
+}
+
+dependencies {
+    annotationProcessor("org.spongepowered:mixin:0.8.5-SNAPSHOT:processor")
+}
+
+tasks.named('jar', Jar) {
+    finalizedBy('reobfJar')
+    manifest {
+        attributes([
+                'MixinConfigs': "${mod_id}.mixins.json"
+        ])
+    }
 }

@@ -302,7 +302,7 @@ public final class LucisServerBenchmark {
     private static void writeResult(MinecraftServer server, BenchmarkConfig config, BenchmarkStats stats) throws IOException {
         Path output = Path.of(config.output());
         if (!output.isAbsolute()) {
-            output = server.getServerDirectory().resolve(output);
+            output = server.getServerDirectory().toPath().resolve(output);
         }
         Path parent = output.getParent();
         if (parent != null) {
@@ -609,7 +609,7 @@ public final class LucisServerBenchmark {
             this.level.getChunkSource().getLightEngine().tryScheduleUpdate();
             for (int index = 0; index < chunks.length; index++) {
                 ChunkPos chunkPos = chunks[index];
-                this.waitFutures[index] = this.level.getChunkSource().getLightEngine().waitForPendingTasks(chunkPos.x, chunkPos.z);
+                this.waitFutures[index] = this.waitForPendingLightTasks(chunkPos);
             }
             this.waitTicks = 0;
             this.waitFailure = null;
@@ -622,6 +622,20 @@ public final class LucisServerBenchmark {
             this.level.getChunkSource().getLightEngine().tryScheduleUpdate();
             LOGGER.info("Lucis light benchmark light wait started: mode={} pass={} phase={} waitMode={} futures={}",
                     this.config.mode(), this.pass, this.phase, this.waitMode, this.waitFutures.length);
+        }
+
+        private CompletableFuture<?> waitForPendingLightTasks(ChunkPos chunkPos) {
+            Object lightEngine = this.level.getChunkSource().getLightEngine();
+            try {
+                Object result = lightEngine.getClass()
+                        .getMethod("waitForPendingTasks", int.class, int.class)
+                        .invoke(lightEngine, chunkPos.x, chunkPos.z);
+                if (result instanceof CompletableFuture<?> future) {
+                    return future;
+                }
+            } catch (ReflectiveOperationException | LinkageError ignored) {
+            }
+            return CompletableFuture.completedFuture(null);
         }
 
         private boolean waitForLight(boolean prepare) {

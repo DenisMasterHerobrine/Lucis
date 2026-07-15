@@ -3,10 +3,10 @@ plugins {
 }
 
 configurations {
-    commonJava{
+    commonJava {
         canBeResolved = true
     }
-    commonResources{
+    commonResources {
         canBeResolved = true
     }
 }
@@ -16,9 +16,6 @@ dependencies {
         capabilities {
             requireCapability "$group:$mod_id"
         }
-    }
-    compileOnly('curse.maven:sable-1312371:8263584') {
-        transitive = false
     }
     commonJava project(path: ':common', configuration: 'commonJava')
     commonResources project(path: ':common', configuration: 'commonResources')
