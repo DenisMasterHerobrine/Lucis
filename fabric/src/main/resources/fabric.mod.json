@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "lucis",
+  "version": "${version}",
+  "name": "Lucis",
+  "description": "Lucis is a lightweight light engine that drastically speeds up Minecraft lighting and scales across multi-core systems.",
+  "authors": [
+    "DenisMasterHerobrine"
+  ],
+  "license": "LGPL-3.0-only",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "dev.denismasterherobrine.lucis.fabric.LucisFabric"
+    ]
+  },
+  "mixins": [
+    "lucis.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=${fabric_loader_version}",
+    "minecraft": "~${minecraft_version}",
+    "java": ">=21",
+    "fabric-lifecycle-events-v1": ">=${fabric_lifecycle_events_version}"
+  },
+  "suggests": {
+    "sable": "*"
+  },
+  "breaks": {
+    "starlight": "*",
+    "scalablelux": "*"
+  }
+}

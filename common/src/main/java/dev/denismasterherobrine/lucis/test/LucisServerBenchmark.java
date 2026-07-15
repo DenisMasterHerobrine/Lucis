@@ -4,6 +4,7 @@ import com.mojang.logging.LogUtils;
 import dev.denismasterherobrine.lucis.Lucis;
 import dev.denismasterherobrine.lucis.config.LucisConfig;
 import dev.denismasterherobrine.lucis.light.engine.LucisServices;
+import dev.denismasterherobrine.lucis.platform.LucisPlatform;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.MinecraftServer;
@@ -14,12 +15,6 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.ChunkSource;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.ModList;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.event.server.ServerStartedEvent;
-import net.neoforged.neoforge.event.server.ServerStoppingEvent;
-import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import org.slf4j.Logger;
 
 import java.io.IOException;
@@ -30,7 +25,6 @@ import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
 import java.util.concurrent.CompletableFuture;
 
-@EventBusSubscriber(modid = Lucis.MODID, bus = EventBusSubscriber.Bus.GAME)
 public final class LucisServerBenchmark {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final int FLAGS = Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE;
@@ -44,32 +38,29 @@ public final class LucisServerBenchmark {
     private LucisServerBenchmark() {
     }
 
-    @SubscribeEvent
-    static void onServerStarted(ServerStartedEvent event) {
+    public static void onServerStarted(MinecraftServer server) {
         if (!Boolean.getBoolean("lucis.benchmark") || !LucisConfig.debug) {
             return;
         }
         BenchmarkConfig config = BenchmarkConfig.fromProperties();
         String expectedMod = config.expectedMod();
-        if (!expectedMod.isBlank() && !ModList.get().isLoaded(expectedMod)) {
+        if (!expectedMod.isBlank() && !LucisPlatform.isModLoaded(expectedMod)) {
             throw new IllegalStateException("Lucis benchmark expected mod is not loaded: " + expectedMod);
         }
         LOGGER.info("Lucis light benchmark starting: mode={} workload={} radiusChunks={} chunkSpan={} origin=({}, {}, {})",
                 config.mode(), config.workload(), config.radiusChunks(), config.chunkSpan(), config.originX(), config.y(), config.originZ());
-        activeRun = new BenchmarkRun(event.getServer(), config);
+        activeRun = new BenchmarkRun(server, config);
     }
 
-    @SubscribeEvent
-    static void onServerTick(ServerTickEvent.Post event) {
+    public static void onServerTick(MinecraftServer server) {
         BenchmarkRun run = activeRun;
-        if (run != null && run.server == event.getServer()) {
+        if (run != null && run.server == server) {
             run.tick();
         }
     }
 
-    @SubscribeEvent
-    static void onServerStopping(ServerStoppingEvent event) {
-        if (activeRun != null && activeRun.server == event.getServer()) {
+    public static void onServerStopping(MinecraftServer server) {
+        if (activeRun != null && activeRun.server == server) {
             activeRun.releaseTickets();
             activeRun = null;
         }

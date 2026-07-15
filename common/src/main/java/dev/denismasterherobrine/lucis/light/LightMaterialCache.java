@@ -4,8 +4,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.neoforge.common.Tags;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
@@ -81,8 +81,7 @@ public final class LightMaterialCache {
     }
 
     private static boolean isTransparentGlass(BlockState state) {
-        return (state.is(Tags.Blocks.GLASS_BLOCKS) || state.is(Tags.Blocks.GLASS_PANES))
-                && !state.is(Tags.Blocks.GLASS_BLOCKS_TINTED);
+        return state.is(BlockTags.IMPERMEABLE) && !state.is(Blocks.TINTED_GLASS);
     }
 
     private static int encodeStatic(int packed) {

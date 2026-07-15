@@ -3,17 +3,11 @@ package dev.denismasterherobrine.lucis.test;
 import dev.denismasterherobrine.lucis.Lucis;
 import dev.denismasterherobrine.lucis.config.LucisConfig;
 import dev.denismasterherobrine.lucis.light.engine.LucisServices;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.event.entity.player.PlayerEvent;
-import net.neoforged.neoforge.event.server.ServerAboutToStartEvent;
-import net.neoforged.neoforge.event.server.ServerStoppedEvent;
-import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.minecraft.server.MinecraftServer;
 
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-@EventBusSubscriber(modid = Lucis.MODID)
 public final class LucisClientLoadDiagnostics {
     private static final AtomicBoolean PLAYER_LOGGED = new AtomicBoolean();
     private static volatile long startedAtNanos;
@@ -21,9 +15,8 @@ public final class LucisClientLoadDiagnostics {
     private LucisClientLoadDiagnostics() {
     }
 
-    @SubscribeEvent
-    static void onServerAboutToStart(ServerAboutToStartEvent event) {
-        if (event.getServer().isDedicatedServer()) {
+    public static void onServerAboutToStart(MinecraftServer server) {
+        if (server.isDedicatedServer()) {
             return;
         }
         LucisServices.resetController();
@@ -36,29 +29,34 @@ public final class LucisClientLoadDiagnostics {
         Lucis.LOGGER.info("LUCIS_CLIENT_MEASURE_START integrated=true");
     }
 
-    @SubscribeEvent
-    static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
+    public static void onPlayerLoggedIn() {
         if (!enabled() || startedAtNanos == 0L || !PLAYER_LOGGED.compareAndSet(false, true)) {
             return;
         }
         logSnapshot("player_join", System.nanoTime());
     }
 
-    @SubscribeEvent
-    static void onServerStopping(ServerStoppingEvent event) {
-        if (!enabled() || startedAtNanos == 0L || event.getServer().isDedicatedServer()) {
+    public static void onServerTick(MinecraftServer server) {
+        if (!enabled() || startedAtNanos == 0L || server.isDedicatedServer() || PLAYER_LOGGED.get()) {
+            return;
+        }
+        if (server.getPlayerList().getPlayerCount() > 0) {
+            onPlayerLoggedIn();
+        }
+    }
+
+    public static void onServerStopping(MinecraftServer server) {
+        if (!enabled() || startedAtNanos == 0L || server.isDedicatedServer()) {
             return;
         }
         logSnapshot("server_stopping", System.nanoTime());
         startedAtNanos = 0L;
     }
 
-    @SubscribeEvent
-    static void onServerStopped(ServerStoppedEvent event) {
-        if (event.getServer().isDedicatedServer()) {
-            return;
+    public static void onServerStopped(MinecraftServer server) {
+        if (!server.isDedicatedServer()) {
+            LucisServices.controller().shutdown();
         }
-        LucisServices.controller().shutdown();
     }
 
     private static void logSnapshot(String phase, long nowNanos) {

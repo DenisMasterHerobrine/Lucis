@@ -5,7 +5,7 @@ import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.chunk.LightChunkGetter;
-import net.neoforged.fml.ModList;
+import dev.denismasterherobrine.lucis.platform.LucisPlatform;
 
 public final class LucisCompat {
     public static final String SABLE_MOD_ID = "sable";
@@ -18,11 +18,7 @@ public final class LucisCompat {
     public static boolean isSableLoaded() {
         Boolean cached = sableLoaded;
         if (cached == null) {
-            ModList modList = ModList.get();
-            if (modList == null) {
-                return false;
-            }
-            cached = modList.isLoaded(SABLE_MOD_ID);
+            cached = LucisPlatform.isModLoaded(SABLE_MOD_ID);
             sableLoaded = cached;
         }
         return cached;

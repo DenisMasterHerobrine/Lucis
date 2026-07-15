@@ -3,7 +3,7 @@ package dev.denismasterherobrine.lucis.test;
 import dev.denismasterherobrine.lucis.Lucis;
 import dev.denismasterherobrine.lucis.compat.LucisCompat;
 import dev.denismasterherobrine.lucis.config.LucisConfig;
-import net.neoforged.fml.ModList;
+import dev.denismasterherobrine.lucis.platform.LucisPlatform;
 
 import java.util.Map;
 import java.util.TreeMap;
@@ -132,9 +132,9 @@ public final class LucisBenchmarkSupport {
     }
 
     private static String activeMode() {
-        boolean scalableLux = ModList.get().isLoaded("scalablelux");
-        boolean generatorAccelerator = ModList.get().isLoaded("generator_accelerator");
-        boolean c2me = ModList.get().isLoaded("c2me");
+        boolean scalableLux = LucisPlatform.isModLoaded("scalablelux");
+        boolean generatorAccelerator = LucisPlatform.isModLoaded("generator_accelerator");
+        boolean c2me = LucisPlatform.isModLoaded("c2me");
         boolean sable = LucisCompat.isSableLoaded();
         String suffix = (scalableLux ? "+scalablelux" : "")
                 + (generatorAccelerator ? "+generator_accelerator" : "")
